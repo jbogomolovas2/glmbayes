@@ -421,6 +421,13 @@ Rcpp::List f2_f3_non_opencl(
     
   }
   
+  else if (family == "cmb") {
+    f2_f3_list = f2_f3_cmb(b, y, x, mu, P, alpha, wt, progbar);
+
+    NegLL  = Rcpp::as<Rcpp::NumericVector>(f2_f3_list["qf"]);
+    cbars2 = Rcpp::as<arma::mat>(f2_f3_list["grad"]);
+  }
+
   else {
     Rcpp::stop("Unsupported family/link combination in f2_f3_non_opencl: " +
       family + "/" + link);

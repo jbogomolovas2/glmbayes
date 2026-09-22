@@ -93,7 +93,7 @@
 #'       \item{\code{call}}{Matched call to \code{rindepNormalGamma_reg()}.}
 #'       \item{\code{famfunc}}{Processed family functions for Gaussian models (from \code{glmbfamfunc}).}
 #'       \item{\code{iters}}{Vector with per-draw iteration counts returned by the joint sampler.}
-#'       \item{\code{Envelope}}{\code{NULL}; envelope diagnostics are not returned by this function.}
+#'       \item{\code{Envelope}}{Envelope used for accept-reject sampling, including available refinement diagnostics.}
 #'       \item{\code{loglike}}{\code{NULL}; placeholder for log-likelihood values.}
 #'       \item{\code{weight_out}}{Numeric vector of per-draw weights returned by the C++ routine.}
 #'       \item{\code{sim_bounds}}{List with \code{low} and \code{upp}, the dispersion bounds used by the shared envelope.}
@@ -1305,7 +1305,7 @@ rindepNormalGamma_reg<-function(n,y,x,prior_list,offset=NULL,weights=1,family=ga
     call=call,
     famfunc=famfunc,
     iters=iters_out,
-    Envelope=NULL,
+    Envelope=core_out$Envelope,
     loglike=NULL,
     weight_out=weight_out,
     sim_bounds=list(low=low,upp=upp)
@@ -1606,8 +1606,9 @@ rNormal_reg<-function(n,y,x,prior_list,offset=NULL,weights=1,family=gaussian(),
     stop("'family' not recognized")
   }
   
-  okfamilies <- c("gaussian","poisson","binomial","quasipoisson","quasibinomial","Gamma")
+  okfamilies <- c("gaussian","poisson","binomial","quasipoisson","quasibinomial","Gamma","cmb")
   if(family$family %in% okfamilies){
+    if(family$family=="cmb") oklinks<-c("identity")
     if(family$family=="gaussian") oklinks<-c("identity")
     if(family$family=="poisson"||family$family=="quasipoisson") oklinks<-c("log")		
     if(family$family=="binomial"||family$family=="quasibinomial") oklinks<-c("logit","probit","cloglog")		
@@ -1715,7 +1716,15 @@ rNormal_reg<-function(n,y,x,prior_list,offset=NULL,weights=1,family=gaussian(),
 
     
     ## get influence info for original model
-    outlist$fit=glmb.wfit(x,y,weights,offset=offset2,family=family,Bbar=mu,P,betastar)
+    ## CMB has no IRLS representation: glmb.wfit needs variance(mu), which
+    ## presumes Var(Y) is a function of the mean alone.  For CMB it depends on
+    ## nu too, so there is no univariate working weight to construct.  Post-fit
+    ## methods reading $fit need CMB-specific handling.
+    if (family$family == "cmb") {
+      outlist$fit <- NULL
+    } else {
+      outlist$fit=glmb.wfit(x,y,weights,offset=offset2,family=family,Bbar=mu,P,betastar)
+    }
     
     
   }

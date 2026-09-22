@@ -7,6 +7,7 @@
 
 #include "famfuncs.h"
 #include "Envelopefuncs.h"
+#include "envelope_refine.h"
 #include "simfuncs.h"
 #include "progress_utils.h"
 
@@ -38,6 +39,22 @@ using namespace glmbayes::env;
 using namespace glmbayes::sim;
 using namespace glmbayes::rng;
 using namespace glmbayes::progress;
+
+
+namespace {
+// A finite ceiling bounds rejection work even for unusably loose envelopes.
+constexpr int GLMBAYES_MAX_PROPOSALS_PER_DRAW = 200000;
+
+void check_proposal_limit(const std::shared_ptr<std::atomic<int>>& failure) {
+  const int draw = failure->load(std::memory_order_relaxed);
+  if (draw != 0) {
+    Rcpp::stop("glmbayes: rejection sampler reached %d proposals with zero "
+               "acceptances for draw %d. No draws were returned; inspect "
+               "the envelope before retrying.",
+               GLMBAYES_MAX_PROPOSALS_PER_DRAW, draw);
+  }
+}
+} // namespace
 
 
 namespace glmbayes {
@@ -256,6 +273,7 @@ Rcpp::List glmb_Standardize_Model(
 // rNormalGLM_worker: parallel sampler with envelope logic
 //-----------------------------------------------------------------------------
 struct rNormalGLM_worker : public RcppParallel::Worker {
+  const std::uint64_t job_seed;
   // --- Inputs ---
   int n;
   
@@ -268,9 +286,12 @@ struct rNormalGLM_worker : public RcppParallel::Worker {
   
   // Envelope components as thread-safe handles (no copies)
   RVector<double> PLSD_r;
+  RVector<double> logPLSD_r;   // normalized mixture weights in log space
+  bool            use_log_sel; // the exponentiated weights underflowed
   RVector<double> LLconst_r;
   RMatrix<double> loglt_r;
   RMatrix<double> logrt_r;
+  RMatrix<double> logU_r;
   RMatrix<double> cbars_r;
   
   
@@ -290,13 +311,14 @@ struct rNormalGLM_worker : public RcppParallel::Worker {
   int                   ncol;      // dimensionality
   
   // --- Optional test controls ---
-  // shared atomic flag: set to 1 by any thread if it hits the cap
+  // Shared failure: zero until a worker records its one-based draw index.
   std::shared_ptr<std::atomic<int>> any_maxdraw_flag; // default nullptr (no reporting)
   int                   max_draws;                   // -1 => no per-index cap
   
   // --- Constructor ---
   rNormalGLM_worker(
     int n_,
+    std::uint64_t job_seed_,
     const RVector<double>& y_r_,
     const RMatrix<double>& x_r_,
     const RMatrix<double>& mu_r_,
@@ -305,9 +327,12 @@ struct rNormalGLM_worker : public RcppParallel::Worker {
     const RVector<double>& wt_r_,
     
     const RcppParallel::RVector<double>& PLSD_r_,
+    const RcppParallel::RVector<double>& logPLSD_r_,
+    bool use_log_sel_,
     const RcppParallel::RVector<double>& LLconst_r_,
     const RcppParallel::RMatrix<double>& loglt_r_,
     const RcppParallel::RMatrix<double>& logrt_r_,
+    const RcppParallel::RMatrix<double>& logU_r_,
     const RcppParallel::RMatrix<double>& cbars_r_,
     
     // const arma::vec& PLSD_,
@@ -323,11 +348,12 @@ struct rNormalGLM_worker : public RcppParallel::Worker {
     std::shared_ptr<std::atomic<int>> any_maxdraw_flag_ = nullptr, // optional shared flag
     int max_draws_ = -1                                              // optional per-index cap
   )
-    : n(n_),
+    : job_seed(job_seed_), n(n_),
       y_r(y_r_), x_r(x_r_), mu_r(mu_r_), P_r(P_r_),
       alpha_r(alpha_r_), wt_r(wt_r_),
-      PLSD_r(PLSD_r_), LLconst_r(LLconst_r_),
-      loglt_r(loglt_r_), logrt_r(logrt_r_), cbars_r(cbars_r_),
+      PLSD_r(PLSD_r_), logPLSD_r(logPLSD_r_), use_log_sel(use_log_sel_),
+      LLconst_r(LLconst_r_),
+      loglt_r(loglt_r_), logrt_r(logrt_r_), logU_r(logU_r_), cbars_r(cbars_r_),
       // PLSD(PLSD_), LLconst(LLconst_),
       // loglt(loglt_), logrt(logrt_), cbars(cbars_),
       family(family_), link(link_), progbar(progbar_),
@@ -395,6 +421,7 @@ void rNormalGLM_worker::operator()(std::size_t begin, std::size_t end) {
 
   // Main loop over indices
   for (std::size_t i = begin; i < end; ++i) {
+    seed_draw(job_seed, i);
 
     draws[i] = 1.0;
 
@@ -404,26 +431,47 @@ void rNormalGLM_worker::operator()(std::size_t begin, std::size_t end) {
     double a1 = 0.0;
 
     while (a1 == 0.0) {
+      // Workers never call the R API on failure. Cancel the entire job;
+      // the main thread reports the failure after parallelFor joins.
+      if (any_maxdraw_flag &&
+          any_maxdraw_flag->load(std::memory_order_relaxed) != 0) return;
+      if (max_draws > 0 && draws[i] > max_draws) {
+        if (any_maxdraw_flag) {
+          int expected = 0;
+          any_maxdraw_flag->compare_exchange_strong(
+              expected, static_cast<int>(i) + 1, std::memory_order_relaxed);
+        }
+        return;
+      }
 
 
       // 1) slice selection
       //double U  = R::runif(0.0, 1.0)
       double U = runif_safe();
-      double a2 = 0.0;
       int    J  = 0;
-      while (a2 == 0.0) {
-        if (U <= PLSD[J]) {
-          //if (U <= PLSD2[J]) {
-          a2 = 1.0;
-        } else {
-          U -= PLSD[J];
-          ++J;
+      const int n_cells_sel = (int) PLSD.n_elem;
+      if (use_log_sel) {
+        // The exponentiated weights underflowed; select from the log weights,
+        // which is the same categorical distribution computed exactly.
+        J = glmbayes::env::select_cell_log(&logPLSD_r[0], n_cells_sel, U);
+      } else {
+        // Original scan, bit for bit.  Bounded at the last cell: a zero weight
+        // would otherwise subtract nothing and increment past the end of the
+        // array.  Unreachable when no weight is zero.
+        double a2 = 0.0;
+        while (a2 == 0.0 && J < n_cells_sel - 1) {
+          if (U <= PLSD[J]) {
+            a2 = 1.0;
+          } else {
+            U -= PLSD[J];
+            ++J;
+          }
         }
       }
 
       // 2) draw truncated‐normal candidates
       for (int j = 0; j < l1; ++j) {
-        out(i, j) = rnorm_ct(logrt(J, j),loglt(J, j),-cbars(J, j), 1.0 );
+        out(i, j) = rnorm_ct(logrt(J, j),loglt(J, j),-cbars(J, j), 1.0, logU_r(J, j));
         //  out(i, j) = rnorm_ct(logrt2(J, j),loglt2(J, j),-cbars2(J, j), 1.0 );
       }
 
@@ -573,6 +621,9 @@ void rNormalGLM_worker::operator()(std::size_t begin, std::size_t end) {
           //            testll2 = f2_gamma_arma(btemp,y,x,mu,P,alpha,wt,0);
           //                        Rcpp::Rcout << "arma version: " << testll2  << "\n";
         }
+        else if (fam2 == "cmb") {
+          testll2 = f2_cmb_rmat(btemp_r,y_r,x_r,mu_r,P_r,alpha_r,wt_r,0);
+        }
         else { // gaussian
           //            testll = f2_gaussian(btemp,y,x,mu,P,alpha,wt);
           //            testll = f2_gaussian_arma(btemp,y,x,mu,P,alpha,wt);
@@ -604,42 +655,7 @@ void rNormalGLM_worker::operator()(std::size_t begin, std::size_t end) {
 
           // keep existing behavior: increment trial count
           draws[i] = draws[i] + 1.0;
-
-          // effective cap: use max_draws when provided, otherwise use legacy 1000 for diagnostic
-          //            int cap = (max_draws >= 0) ? max_draws : 1000;
-
-          // print exactly once when we hit the cap (use your existing mutex for thread-safety)
-          //            if (static_cast<int>(draws[i]) == cap) {
-          if (max_draws>0 && static_cast<int>(draws[i]) >= max_draws) {
-            tbb::mutex::scoped_lock lock(f2_mutex);
-            Rcpp::Rcout << "[WARN] index=" << i << " reached draws=" << draws[i]
-                        << " (cap=" << max_draws << ") — forcing a1=1.0 to avoid infinite loop\n";
-
-            Rcpp::Rcout << "[DEBUG] Acceptance test breakdown:\n";
-            Rcpp::Rcout << "  LLconst[" << J << "] = " << LLconst[J] << "\n";
-            Rcpp::Rcout << "  testtemp2(0,0) = " << testtemp2(0,0) << "\n";
-            Rcpp::Rcout << "  log(U2) = " << std::log(U2) << "\n";
-            Rcpp::Rcout << "  testll2[0] = " << testll2[0] << "\n";
-            Rcpp::Rcout << "  test = " << test << "\n";
-
-
-          }
-
-
-
-          // when cap reached or exceeded, set the atomic flag (if provided) and force exit
-          //            if (static_cast<int>(draws[i]) >= cap) {
-          if (max_draws>0 && static_cast<int>(draws[i]) >= max_draws) {
-            if (any_maxdraw_flag) {
-              any_maxdraw_flag->store(1, std::memory_order_relaxed);
-            }
-            a1 = 1.0;   // force acceptance / break out of while loop
-          }
-
         }
-
-
-
       }
 
 
@@ -730,74 +746,9 @@ Rcpp::List run_rcppparallel_pilot(
   
   // inspect the flag after the test
   int any_hit_after_test = any_flag->load(std::memory_order_relaxed);
-  
-  if (any_hit_after_test != 0) {
-    Rcpp::Rcout
-    << "[WARN] One or more indices reached the max_draws cap during the test phase "
-    << "with zero accepted draws.\n"
-    << "This indicates that the envelope was insufficiently tight overall.\n"
-    << "Complete non-acceptance is a strong indicator of posterior non-normality.\n"
-    << "\n"
-    << "Important note: Once you continue, the full run has no max_draws cap.\n"
-    << "Because this code uses RcppParallel, the run cannot be interrupted.\n"
-    << "If acceptance remains zero, the simulation may appear to 'hang' indefinitely.\n"
-    << "\n"
-    << "Recommended actions:\n"
-    << "  - Set use_opencl = TRUE or increase the requested sample size (number of draws);\n"
-    << "    both of these lead EnvelopeOpt to favor tighter envelopes, though they do not guarantee it.\n"
-    << "  - Try a different Gridtype setting to force a tighter envelope.\n"
-    << "  - Strengthen the prior to stabilize behavior in the tails.\n"
-    << std::endl;
-    
-    // interactive prompt (use base::interactive(); Rf_interactive is not portable on Windows)
-    Rcpp::Function r_interactive("interactive");
-    Rcpp::Shield<SEXP> interactive_sexp(r_interactive());
-    bool is_interactive = Rcpp::as<bool>(interactive_sexp);
-    
-    if (is_interactive) {
-      Rcpp::Function readline("readline");
-      std::string prompt = "Enter 1 to continue full run, 2 to stop and return partial results: ";
-      
-      while (true) {
-        Rcpp::Shield<SEXP> prompt_sexp(Rf_mkString(prompt.c_str()));
-        Rcpp::Shield<SEXP> ans_sexp(readline(prompt_sexp));
-        std::string ans = Rcpp::as<std::string>(ans_sexp);
-        // trim whitespace
-        auto ltrim = [](std::string &s) {
-          s.erase(s.begin(), std::find_if(s.begin(), s.end(),
-                          [](unsigned char ch){ return !std::isspace(ch); }));
-        };
-        auto rtrim = [](std::string &s) {
-          s.erase(std::find_if(s.rbegin(), s.rend(),
-                               [](unsigned char ch){ return !std::isspace(ch); }).base(), s.end());
-        };
-        ltrim(ans); rtrim(ans);
-        
-        if (ans == "1" || ans == "continue" || ans == "y" || ans == "yes") {
-          Rcpp::Rcout << "[INFO] User chose to continue full run.\n";
-          break; // fall through to construct/run full worker
-        } else if (ans == "2" || ans == "stop" || ans == "n" || ans == "no") {
-          Rcpp::Rcout << "[INFO] User chose to stop. Returning partial test results.\n";
-          return make_rcppparallel_pilot_result(
-            out,
-            draws,
-            any_hit_after_test,
-            true,
-            std::string("Stopped by user after test"),
-            false,
-            NA_REAL,
-            NA_REAL
-          );
-        } else {
-          Rcpp::Rcout << "Invalid input. Please enter 1 (continue) or 2 (stop).\n";
-        }
-      } // end prompt loop
-    } else {
-      // Non-interactive: proceed automatically
-      Rcpp::Rcout << "[NOTE] Non-interactive session: proceeding automatically.\n";
-    }
-  }
-  
+
+  check_proposal_limit(any_flag);
+
   // --- runtime estimate based on single-sample pilot ---
   int candidates_used = static_cast<int>(draws[0]);     // from pilot sample
   double est_total_sec = std::numeric_limits<double>::quiet_NaN();
@@ -863,6 +814,7 @@ Rcpp::List run_rcppparallel_pilot(
   // --- calibration run for m_stage draws ---
   auto t_cal0 = std::chrono::steady_clock::now();
   RcppParallel::parallelFor(0, m_stage, worker);
+  check_proposal_limit(any_flag);
   auto t_cal1 = std::chrono::steady_clock::now();
   double cal_elapsed_sec = std::chrono::duration<double>(t_cal1 - t_cal0).count();
   
@@ -1061,8 +1013,36 @@ List rNormalGLM_std_parallel(
   
 
   Rcpp::NumericVector PLSD    = Envelope["PLSD"];
+  // Use the log-space selector only when the exponentiated representation has
+  // actually failed: a zero weight whose log weight is still finite.  If zeros
+  // are present and logPLSD is missing or mis-sized, error -- falling back to
+  // the ordinary scan would run it over zero weights.
+  bool use_log_sel = false;
+  {
+    bool has_zero = false;
+    for (int i = 0; i < PLSD.size(); ++i) if (PLSD[i] == 0.0) { has_zero = true; break; }
+    if (has_zero) {
+      if (!Envelope.containsElementNamed("logPLSD"))
+        Rcpp::stop("Envelope has zero mixture weights but no logPLSD; "
+                   "cannot select a component safely.");
+      Rcpp::NumericVector lp = Envelope["logPLSD"];
+      if (lp.size() != PLSD.size())
+        Rcpp::stop("logPLSD length does not match PLSD.");
+      for (int i = 0; i < PLSD.size(); ++i)
+        if (PLSD[i] == 0.0 && R_finite(lp[i])) { use_log_sel = true; break; }
+    }
+  }
+  Rcpp::NumericVector logPLSD(PLSD.size());
+  if (Envelope.containsElementNamed("logPLSD")) {
+    logPLSD = Rcpp::as<Rcpp::NumericVector>(Envelope["logPLSD"]);
+  } else {
+    for (int i = 0; i < PLSD.size(); ++i) logPLSD[i] = std::log(PLSD[i]);
+  }
   Rcpp::NumericMatrix loglt   = Envelope["loglt"];
   Rcpp::NumericMatrix logrt   = Envelope["logrt"];
+  Rcpp::NumericMatrix logU(logrt.nrow(), logrt.ncol());
+  std::fill(logU.begin(), logU.end(), NA_REAL);
+  if (Envelope.containsElementNamed("logU")) logU = as<NumericMatrix>(Envelope["logU"]);
   Rcpp::NumericMatrix cbars   = Envelope["cbars"];
   Rcpp::NumericVector LLconst = Envelope["LLconst"];
 
@@ -1100,46 +1080,45 @@ List rNormalGLM_std_parallel(
   auto any_flag = std::make_shared<std::atomic<int>>(0);
   
   
-  double p_max_draws = 0.001;
-  double p_accept = 1.0 / E_draws;
-  
-  double max_draws = std::ceil(std::log(p_max_draws) / std::log(1.0 - p_accept));
-  
-
-  
   RVector<double> PLSD_r(PLSD);
+  RVector<double> logPLSD_r(logPLSD);
   RVector<double> LLconst_r(LLconst);
   RMatrix<double> loglt_r(loglt);
   RMatrix<double> logrt_r(logrt);
+  RMatrix<double> logU_r(logU);
   RMatrix<double> cbars_r(cbars);
   
   
 
 
+  const auto job_seed = seed_from_R();
   rNormalGLM_worker test_worker(
-      n, y_r, x_r, mu_r, P_r, alpha_r, wt_r,
-      PLSD_r, LLconst_r, loglt_r, logrt_r, cbars_r,
+      n, job_seed, y_r, x_r, mu_r, P_r, alpha_r, wt_r,
+      PLSD_r, logPLSD_r, use_log_sel, LLconst_r, loglt_r, logrt_r, logU_r, cbars_r,
       family, link, progbar, out_r, draws_r,
-      any_flag, max_draws
+      any_flag, GLMBAYES_MAX_PROPOSALS_PER_DRAW
   );
   
   
 
   rNormalGLM_worker worker(
-      n,
+      n, job_seed,
       y_r, x_r, mu_r, P_r,
       alpha_r, wt_r,
-      PLSD_r, LLconst_r, loglt_r, logrt_r, cbars_r,
+      PLSD_r, logPLSD_r, use_log_sel, LLconst_r, loglt_r, logrt_r, logU_r, cbars_r,
       family, link,
       progbar,
       out_r, draws_r,
       any_flag,    // shared atomic flag
-      -1
+      // Finite ceiling.  The real worker used to run with -1 (uncapped): if
+      // the envelope never accepts, the run cannot be interrupted and appears
+      // to hang forever.  See GLMBAYES_MAX_PROPOSALS_PER_DRAW.
+      (int) GLMBAYES_MAX_PROPOSALS_PER_DRAW
   );
   
   
 
-  if (p >= 14) {
+  if (p >= 14 && n > 0) {
    
    auto pilot_res = run_rcppparallel_pilot(
      n,
@@ -1163,6 +1142,8 @@ List rNormalGLM_std_parallel(
 
   
   RcppParallel::parallelFor(0, n, worker);  // grain size == n → serial chunk
+
+  check_proposal_limit(any_flag);
 //      worker(0, n);  // Call serially
 
 
@@ -1202,7 +1183,7 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
   
   
   
-  //RNGScope scope;
+  const auto job_seed = seed_from_R();
   int l1 = mu.nrow();
   //  int l2=pow(3,l1);
   
@@ -1222,8 +1203,34 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
   //out(0,0)=1;
   
   NumericVector PLSD=Envelope["PLSD"];
+  // See the note in the parallel path: log-space selection only on genuine
+  // representation underflow, and no silent fallback if logPLSD is missing.
+  bool use_log_sel = false;
+  {
+    bool has_zero = false;
+    for (int i = 0; i < PLSD.size(); ++i) if (PLSD[i] == 0.0) { has_zero = true; break; }
+    if (has_zero) {
+      if (!Envelope.containsElementNamed("logPLSD"))
+        Rcpp::stop("Envelope has zero mixture weights but no logPLSD; "
+                   "cannot select a component safely.");
+      NumericVector lp = Envelope["logPLSD"];
+      if (lp.size() != PLSD.size())
+        Rcpp::stop("logPLSD length does not match PLSD.");
+      for (int i = 0; i < PLSD.size(); ++i)
+        if (PLSD[i] == 0.0 && R_finite(lp[i])) { use_log_sel = true; break; }
+    }
+  }
+  NumericVector logPLSD(PLSD.size());
+  if (Envelope.containsElementNamed("logPLSD")) {
+    logPLSD = Rcpp::as<NumericVector>(Envelope["logPLSD"]);
+  } else {
+    for (int i = 0; i < PLSD.size(); ++i) logPLSD[i] = std::log(PLSD[i]);
+  }
   NumericMatrix loglt=Envelope["loglt"];
   NumericMatrix logrt=Envelope["logrt"];
+  NumericMatrix logU(logrt.nrow(), logrt.ncol());
+  std::fill(logU.begin(), logU.end(), NA_REAL);
+  if (Envelope.containsElementNamed("logU")) logU = as<NumericMatrix>(Envelope["logU"]);
   NumericMatrix cbars=Envelope["cbars"];
   NumericVector LLconst=Envelope["LLconst"]; 
   
@@ -1248,6 +1255,7 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
   
   if(progbar==1){ Rcpp::Rcout << "Starting Simulation:" << std::endl;  };
   for(int i=0;i<n;i++){
+    seed_draw(job_seed, i);
     
     Rcpp::checkUserInterrupt();
     if(progbar==1){
@@ -1259,18 +1267,29 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
     a1=0;
     draws(i)=1;
     while(a1==0){
+      if (static_cast<int>(draws(i)) % 1024 == 0) Rcpp::checkUserInterrupt();
+      if (draws(i) > GLMBAYES_MAX_PROPOSALS_PER_DRAW) {
+        Rcpp::stop("glmbayes: the rejection sampler reached %d proposals "
+                   "with zero acceptances for draw %d of %d. The envelope is "
+                   "too loose for this model, so no draws were returned. "
+                   "No approximate or force-accepted values were produced.",
+                   (int) GLMBAYES_MAX_PROPOSALS_PER_DRAW, i + 1, n);
+      }
       
-      U=R::runif(0.0, 1.0);
-      a2=0;
-      J(i)=0;    
-      while(a2==0){
-        if(U<=PLSD(J(i))) a2=1;
-        if(U>PLSD(J(i))){ 
-          U=U-PLSD(J(i));
-          J(i)=J(i)+1;
-          
+      U=runif_safe();
+      J(i)=0;
+      const int n_cells_sel = PLSD.size();
+      if (use_log_sel) {
+        J(i) = glmbayes::env::select_cell_log(&logPLSD[0], n_cells_sel, U);
+      } else {
+        a2=0;
+        while(a2==0 && J(i) < n_cells_sel - 1){
+          if(U<=PLSD(J(i))) a2=1;
+          if(U>PLSD(J(i))){
+            U=U-PLSD(J(i));
+            J(i)=J(i)+1;
+          }
         }
-        //a2=1; 
       }
       
       
@@ -1278,7 +1297,7 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
       
       for(int j=0;j<l1;j++){  
         
-        out(i,j)=rnorm_ct(logrt(J(i),j),loglt(J(i),j),-cbars(J(i),j),1.0);    
+        out(i,j)=rnorm_ct(logrt(J(i),j),loglt(J(i),j),-cbars(J(i),j),1.0,logU(J(i),j));
         
         
       }
@@ -1286,7 +1305,7 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
       outtemp=out(i,_);
       cbartemp=cbars(J(i),_);
       testtemp2=outtemp2 * trans(cbartemp2);
-      U2=R::runif(0.0, 1.0);
+      U2=runif_safe();
       btemp2=trans(outtemp2);    
       
       // Need to modify to call correct f2 function based on family and link
@@ -1333,6 +1352,10 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
         testll=f2_gaussian(btemp,y, x,mu,P,alpha,wt);
       }
       
+      if(family2=="cmb"){
+        testll=f2_cmb(btemp,y, x,mu,P,alpha,wt,0);
+      }
+
       ////
       
       
@@ -1341,7 +1364,7 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
       
       if(test>=0) 
       {        a1=1;      }
-      if(test<0) draws(i)=draws(i)+1;
+      else draws(i)=draws(i)+1;
       
     }
     
@@ -1417,7 +1440,18 @@ Rcpp::List rNormalGLM(int n,NumericVector y,NumericMatrix x,
   NumericMatrix x2b(clone(x));
   arma::mat P2(P.begin(), P.nrow(), P.ncol(), false);
   
-  if(family=="poisson"||family=="binomial")dispersion2=1;
+  // CMB has no dispersion parameter; wt carries the trial counts m and must
+  // not be divided.  Without this an explicitly supplied dispersion would
+  // silently rescale every m.
+  if (!(family=="binomial" || family=="quasibinomial" ||
+        family=="poisson"  || family=="quasipoisson"  ||
+        family=="Gamma"    || family=="gaussian"      ||
+        family=="cmb"))
+    Rcpp::stop("rNormalGLM: unsupported family '" + family + "'. The accept "
+               "step has no branch for it and would score draws with the "
+               "wrong likelihood.");
+
+  if(family=="poisson"||family=="binomial"||family=="cmb")dispersion2=1;
   else dispersion2=dispersion;
   
   int i;  // This can be likely be shifted towards top of function
@@ -1561,11 +1595,13 @@ Rcpp::List rNormalGLM(int n,NumericVector y,NumericMatrix x,
   // for iid sampling (default 1000).
   if(n==1){
     Envelope=EnvelopeBuild(bstar2_temp, A_temp,y, x2_temp,mu2_temp,
-                             P2_temp,alpha,wt2,family,link,Gridtype, n,n_envopt,false,use_opencl,verbose);
+                             P2_temp,alpha,wt2,family,link,Gridtype, n,n_envopt,false,use_opencl,verbose,
+                             /*refine*/ true, /*refine_maxit*/ 60);
   }
   if(n>1){
     Envelope=EnvelopeBuild(bstar2_temp, A_temp,y, x2_temp,mu2_temp,
-                             P2_temp,alpha,wt2,family,link,Gridtype, n,n_envopt,true,use_opencl,verbose);
+                             P2_temp,alpha,wt2,family,link,Gridtype, n,n_envopt,true,use_opencl,verbose,
+                             /*refine*/ true, /*refine_maxit*/ 60);
   }
   
   //  Rcpp::Rcout << "Finished Envelope Creation:" << std::endl;
@@ -1689,4 +1725,3 @@ Rcpp::List rNormalGLM(int n,NumericVector y,NumericMatrix x,
 
 }
 }
-

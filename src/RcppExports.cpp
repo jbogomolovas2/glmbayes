@@ -227,8 +227,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // EnvelopeBuild_cpp_export
-Rcpp::List EnvelopeBuild_cpp_export(Rcpp::NumericVector bStar, Rcpp::NumericMatrix A, Rcpp::NumericVector y, Rcpp::NumericMatrix x, Rcpp::NumericMatrix mu, Rcpp::NumericMatrix P, Rcpp::NumericVector alpha, Rcpp::NumericVector wt, std::string family, std::string link, int Gridtype, int n, int n_envopt, bool sortgrid, bool use_opencl, bool verbose);
-RcppExport SEXP _glmbayes_EnvelopeBuild_cpp_export(SEXP bStarSEXP, SEXP ASEXP, SEXP ySEXP, SEXP xSEXP, SEXP muSEXP, SEXP PSEXP, SEXP alphaSEXP, SEXP wtSEXP, SEXP familySEXP, SEXP linkSEXP, SEXP GridtypeSEXP, SEXP nSEXP, SEXP n_envoptSEXP, SEXP sortgridSEXP, SEXP use_openclSEXP, SEXP verboseSEXP) {
+Rcpp::List EnvelopeBuild_cpp_export(Rcpp::NumericVector bStar, Rcpp::NumericMatrix A, Rcpp::NumericVector y, Rcpp::NumericMatrix x, Rcpp::NumericMatrix mu, Rcpp::NumericMatrix P, Rcpp::NumericVector alpha, Rcpp::NumericVector wt, std::string family, std::string link, int Gridtype, int n, int n_envopt, bool sortgrid, bool use_opencl, bool verbose, bool refine, int refine_maxit);
+RcppExport SEXP _glmbayes_EnvelopeBuild_cpp_export(SEXP bStarSEXP, SEXP ASEXP, SEXP ySEXP, SEXP xSEXP, SEXP muSEXP, SEXP PSEXP, SEXP alphaSEXP, SEXP wtSEXP, SEXP familySEXP, SEXP linkSEXP, SEXP GridtypeSEXP, SEXP nSEXP, SEXP n_envoptSEXP, SEXP sortgridSEXP, SEXP use_openclSEXP, SEXP verboseSEXP, SEXP refineSEXP, SEXP refine_maxitSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -248,7 +248,9 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< bool >::type sortgrid(sortgridSEXP);
     Rcpp::traits::input_parameter< bool >::type use_opencl(use_openclSEXP);
     Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
-    rcpp_result_gen = Rcpp::wrap(EnvelopeBuild_cpp_export(bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose));
+    Rcpp::traits::input_parameter< bool >::type refine(refineSEXP);
+    Rcpp::traits::input_parameter< int >::type refine_maxit(refine_maxitSEXP);
+    rcpp_result_gen = Rcpp::wrap(EnvelopeBuild_cpp_export(bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose, refine, refine_maxit));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -510,7 +512,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_glmbayes_rGammaGamma_cpp_export", (DL_FUNC) &_glmbayes_rGammaGamma_cpp_export, 12},
     {"_glmbayes_rNormalGLM_std_cpp_export", (DL_FUNC) &_glmbayes_rNormalGLM_std_cpp_export, 13},
     {"_glmbayes_EnvelopeSize_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeSize_cpp_export, 7},
-    {"_glmbayes_EnvelopeBuild_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeBuild_cpp_export, 16},
+    {"_glmbayes_EnvelopeBuild_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeBuild_cpp_export, 18},
     {"_glmbayes_EnvelopeBuild_Ind_Normal_Gamma_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeBuild_Ind_Normal_Gamma_cpp_export, 16},
     {"_glmbayes_EnvelopeEval_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeEval_cpp_export, 11},
     {"_glmbayes_EnvelopeDispersionBuild_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeDispersionBuild_cpp_export, 17},

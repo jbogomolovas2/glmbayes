@@ -34,6 +34,7 @@
 #' \item{famfunc}{Family functions used during estimation process}
 #' \item{iters}{an \code{n} by \code{1} matrix giving the number of candidates generated before acceptance for each sample.}
 #' \item{Envelope}{the envelope that was used during sampling}
+#' \item{diagnostics}{Sampling counts, envelope refinement status, and build identity; see \code{\link{print.glmb_diagnostics}}.}
 #' 
 #' Objects of class \code{"rlmb"} are normally of class \code{c("rlmb","rglmb","glmb","glm","lm")},
 #' meaning they inherit from \code{rglmb}, \code{glmb}, \code{glm}, and \code{lm}. Well-designed
@@ -195,7 +196,7 @@ rlmb <- function(
   )
   
   ## Direct call, same style as original
-  outlist <- simfun(
+  outlist <- .glmb_run_simulation(simfun(
     n          = n,
     y          = y,
     x          = x,
@@ -209,7 +210,7 @@ rlmb <- function(
     use_opencl  = use_opencl,
     verbose     = verbose,
     progbar     = progbar
-  )
+  ), args=simfun_args)
   
   if (pfamily$pfamily == "dIndependent_Normal_Gamma") {
     if (!is.null(outlist$sim_bounds)) {

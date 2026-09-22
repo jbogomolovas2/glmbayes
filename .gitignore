@@ -38,3 +38,18 @@ stamp-h1
 
 # Editor / autoconf backup files
 *~
+*.bak_cmb
+*.bak_cmbr
+*.bak_plinks
+*.bak2
+*.bak3
+
+# Local analyses, release artifacts and editor backups are not contributions.
+/output/
+/outputs/
+/work/
+/library/
+.DS_Store
+*.bak*
+src/Makevars
+src/*.o.tmp

@@ -5,9 +5,10 @@
 #include <Rmath.h>   // libR Mathlib: Rf_pgamma, Rf_qgamma
 #include "rng_utils.h"
 
-// Thread-local RNG and distribution
-thread_local std::mt19937 safe_rng_engine(std::random_device{}());
-thread_local std::uniform_real_distribution<> safe_rng_dist(0.0, 1.0);
+namespace {
+// Storage is thread-local; stream identity is assigned per output row.
+thread_local std::mt19937_64 safe_rng_engine;
+}
 
 using namespace glmbayes::rng;
 
@@ -98,9 +99,31 @@ namespace glmbayes {
 
 namespace rng {
 
-// Core sampling function
+std::uint64_t seed_from_R() {
+  // Only this function touches R's RNG. Exactly two draws per sampler job,
+  // regardless of thread count, rejection work, or pilot/calibration size.
+  const auto lo = static_cast<std::uint32_t>(::unif_rand() * 4294967296.0);
+  const auto hi = static_cast<std::uint32_t>(::unif_rand() * 4294967296.0);
+  return (static_cast<std::uint64_t>(hi) << 32) | lo;
+}
+
+void seed_draw(std::uint64_t job_seed, std::uint64_t draw_index) {
+  std::seed_seq seed {
+    static_cast<std::uint32_t>(job_seed),
+    static_cast<std::uint32_t>(job_seed >> 32),
+    static_cast<std::uint32_t>(draw_index),
+    static_cast<std::uint32_t>(draw_index >> 32),
+    std::uint32_t(0x676c6d62)
+  };
+  safe_rng_engine.seed(seed);
+}
+
 double runif_safe() {
-  return safe_rng_dist(safe_rng_engine);
+  // Explicit 53-bit conversion avoids implementation-dependent behavior of
+  // uniform_real_distribution. Exclude both endpoints for inverse CDFs.
+  std::uint64_t bits;
+  do { bits = safe_rng_engine() >> 11; } while (bits == 0);
+  return static_cast<double>(bits) * (1.0 / 9007199254740992.0);
 }
 
 

@@ -572,6 +572,178 @@ glmbfamfunc<-function(family, lik_shape = 1){
 
   }
 
+  if(family$family == "cmb")
+  {
+    ## Conway-Maxwell-binomial, natural parametrisation, with covariates on
+    ## BOTH linear predictors: theta_i = x_i' beta and nu_i = z_i' gamma.
+    ##
+    ## x is STACKED, 2N rows:
+    ##     [ X  0 ]  rows 1..N     -> theta
+    ##     [ 0  Z ]  rows N+1..2N  -> nu
+    ## The linear predictor is split by ROW, never by coordinate, which is what
+    ## makes it invariant under the rotation glmb_Standardize_Model applies.
+    ## y holds proportions and wt holds trial counts m in rows 1..N; rows
+    ## N+1..2N of y and wt are placeholders and are never read.
+
+    .cmb_N <- function(x) {
+      l1 <- nrow(x)
+      if (l1 %% 2L != 0L)
+        stop("CMB: nrow(x) must be even (2N: N theta rows then N nu rows). ",
+             "Build the design with cmb_augment().")
+      l1 %/% 2L
+    }
+
+    .cmb_tab <- function(m) {
+      um <- sort(unique(as.integer(m)))
+      if (any(um < 1L)) stop("CMB requires m >= 1")
+      if (all(um == 1L))
+        stop("all m = 1: log choose(1, y) is 0 and nu is unidentified")
+      tabs <- lapply(um, function(mm) list(j = 0:mm, t = lchoose(mm, 0:mm)))
+      names(tabs) <- as.character(um)
+      tabs
+    }
+
+    ## Per-observation normaliser and moments of T = (Y, t(Y)).  theta and nu
+    ## are now both vectors of length N.
+    .cmb_mom <- function(theta, nu, m, tabs, moments = TRUE) {
+      N <- length(theta)
+      lZ <- EY <- Et <- VY <- VT <- CYT <- numeric(N)
+      for (i in seq_len(N)) {
+        tb <- tabs[[as.character(m[i])]]
+        lw <- theta[i] * tb$j + nu[i] * tb$t
+        M <- max(lw); e <- exp(lw - M); s <- sum(e)
+        lZ[i] <- M + log(s)
+        if (moments) {
+          w <- e / s
+          ey <- sum(w * tb$j); et <- sum(w * tb$t)
+          dj <- tb$j - ey;     dt <- tb$t - et
+          EY[i] <- ey; Et[i] <- et
+          VY[i] <- sum(w * dj * dj)
+          VT[i] <- sum(w * dt * dt)
+          CYT[i] <- sum(w * dj * dt)
+        }
+      }
+      list(lZ = lZ, EY = EY, Et = Et, VY = VY, VT = VT, CYT = CYT)
+    }
+
+    .cmb_dat <- function(y, wt, N) {
+      m <- round(as.numeric(wt)[seq_len(N)])
+      yc <- round(as.numeric(wt)[seq_len(N)] * as.numeric(y)[seq_len(N)])
+      if (any(yc < 0 | yc > m)) stop("CMB: implied counts outside [0, m]")
+      list(m = m, yc = yc, ty = lchoose(m, yc))
+    }
+
+    .cmb_eta <- function(bcol, x, alpha) {
+      eta <- as.vector(alpha + x %*% bcol)
+      N <- length(eta) %/% 2L
+      list(theta = eta[seq_len(N)], nu = eta[N + seq_len(N)], N = N)
+    }
+
+    ## Saturated log-likelihood: maximise over theta_i at that observation's
+    ## own nu_i.  E[Y] is strictly increasing in theta so a bracket always
+    ## exists; Newton is safeguarded inside it because at nu < 0 the mass sits
+    ## at the endpoints and Var(Y) underflows once theta runs out, which turns
+    ## an unbracketed step into a huge jump.  Endpoint y contribute exactly 0:
+    ## the supremum is attained only as theta -> -+Inf.
+    .cmb_sat <- function(yc, m, nu, tabs, tol = 1e-10, maxit = 200L) {
+      out <- numeric(length(yc))
+      for (i in seq_along(yc)) {
+        if (yc[i] <= 0 || yc[i] >= m[i]) { out[i] <- 0; next }
+        mi <- m[i]; target <- yc[i]; nui <- nu[i]
+        EYf <- function(th) .cmb_mom(th, nui, mi, tabs)$EY
+        lo <- hi <- log(target / (mi - target))
+        st <- 1
+        while (EYf(lo) > target && st < 1e6) { lo <- lo - st; st <- st * 2 }
+        st <- 1
+        while (EYf(hi) < target && st < 1e6) { hi <- hi + st; st <- st * 2 }
+        th <- 0.5 * (lo + hi)
+        for (it in seq_len(maxit)) {
+          mo <- .cmb_mom(th, nui, mi, tabs)
+          g <- mo$EY - target
+          if (abs(g) < tol) break
+          if (g > 0) hi <- th else lo <- th
+          nt <- if (mo$VY > 0) th - g / mo$VY else NA_real_
+          th <- if (is.finite(nt) && nt > lo && nt < hi) nt else 0.5*(lo+hi)
+        }
+        mo <- .cmb_mom(th, nui, mi, tabs, moments = FALSE)
+        out[i] <- th * target + nui * lchoose(mi, target) - mo$lZ
+      }
+      sum(out)
+    }
+
+    f1<-function(b,y,x,alpha=0,wt=1){
+      B <- if (is.matrix(b)) b else matrix(b, ncol = 1L)
+      N <- .cmb_N(x)
+      d <- .cmb_dat(y, wt, N); tabs <- .cmb_tab(d$m)
+      res <- numeric(ncol(B))
+      for (k in seq_len(ncol(B))) {
+        s <- .cmb_eta(B[, k], x, alpha)
+        mo <- .cmb_mom(s$theta, s$nu, d$m, tabs, moments = FALSE)
+        res[k] <- -sum(s$theta * d$yc + s$nu * d$ty - mo$lZ)
+      }
+      if (is.matrix(b) && ncol(B) > 1L) res else res[1L]
+    }
+
+    f2<-function(b,y,x,mu,P,alpha=0,wt=1){
+      B <- if (is.matrix(b)) b else matrix(b, ncol = 1L)
+      mu <- as.vector(mu)
+      nll <- f1(B, y, x, alpha, wt)
+      pen <- apply(B, 2L, function(v) {
+        dv <- v - mu; 0.5 * as.numeric(crossprod(dv, P %*% dv))
+      })
+      out <- nll + pen
+      if (is.matrix(b) && ncol(B) > 1L) out else out[1L]
+    }
+
+    f3<-function(b,y,x,mu,P,alpha=0,wt=1){
+      B <- if (is.matrix(b)) b else matrix(b, ncol = 1L)
+      mu <- as.vector(mu)
+      N <- .cmb_N(x)
+      d <- .cmb_dat(y, wt, N); tabs <- .cmb_tab(d$m)
+      l2 <- nrow(B); m1 <- ncol(B)
+      g <- matrix(0.0, m1, l2)
+      for (k in seq_len(m1)) {
+        s <- .cmb_eta(B[, k], x, alpha)
+        mo <- .cmb_mom(s$theta, s$nu, d$m, tabs)
+        dv <- B[, k] - mu
+        sc <- c(d$yc - mo$EY, d$ty - mo$Et)
+        g[k, ] <- -as.vector(crossprod(x, sc)) + as.vector(P %*% dv)
+      }
+      if (is.matrix(b) && m1 > 1L) g else as.vector(g)
+    }
+
+    f4<-function(b,y,x,alpha=0,wt=1,dispersion=1){
+      wtd <- wt / dispersion
+      N <- .cmb_N(x)
+      d <- .cmb_dat(y, wtd, N); tabs <- .cmb_tab(d$m)
+      bv <- if (is.matrix(b)) b[, 1L] else b
+      s <- .cmb_eta(bv, x, alpha)
+      2 * f1(b, y, x, alpha, wtd) + 2 * .cmb_sat(d$yc, d$m, s$nu, tabs)
+    }
+
+    ## Fisher information X' W X.  W is the covariance of the sufficient
+    ## statistic, now a 2N x 2N matrix of 2x2 blocks: Var(Y_i) on the theta
+    ## diagonal, Var(t(Y_i)) on the nu diagonal, Cov(Y_i, t(Y_i)) coupling row
+    ## i to row N+i.  Likelihood only, no prior term, matching the other
+    ## families' f7.  For scalar nu (Z = 1_N) the nu block collapses to
+    ## sum_i Var(t(Y_i)), recovering the previous formula.
+    f7<-function(b,y,x,mu,P,alpha=0,wt=1){
+      N <- .cmb_N(x); l1 <- nrow(x)
+      d <- .cmb_dat(y, wt, N); tabs <- .cmb_tab(d$m)
+      bv <- if (is.matrix(b)) b[, 1L] else b
+      s <- .cmb_eta(bv, x, alpha)
+      mo <- .cmb_mom(s$theta, s$nu, d$m, tabs)
+      W <- matrix(0.0, l1, l1)
+      ii <- seq_len(N); jj <- N + ii
+      W[cbind(ii, ii)] <- mo$VY
+      W[cbind(jj, jj)] <- mo$VT
+      W[cbind(ii, jj)] <- mo$CYT
+      W[cbind(jj, ii)] <- mo$CYT
+      t(x) %*% W %*% x
+    }
+
+  }
+
   out=list(f1=f1,f2=f2,f3=f3,f4=f4,
            #f5=f5,
            #f6=f6,
@@ -1717,7 +1889,8 @@ EnvelopeSort <- function(l1, l2,
                          GIndex, G3, cbars, logU, logrt, loglt,
                          logP, LLconst, PLSD, a1, E_draws,
                          lg_prob_factor = NULL,
-                         UB2min=NULL
+                         UB2min=NULL,
+                         logPLSD = NULL
                          # ,thetabar_const_base = NULL,
                          # New_LL_Slope=NULL,
                          # shape3_face=NULL
@@ -1756,6 +1929,16 @@ EnvelopeSort <- function(l1, l2,
     if (!is.null(UB2min)) {
       stopifnot(length(UB2min) == l2)
       UB2min <- UB2min[sel]
+    }
+
+    ## Mixture weights in log space, reordered by the SAME index vector as
+    ## PLSD.  Note the sort key remains PLSD: once several cells underflow to
+    ## zero their relative order among the ties is arbitrary, which sorting on
+    ## logPLSD would fix, but changing the key is a behaviour change and those
+    ## cells carry negligible mass by construction.
+    if (!is.null(logPLSD)) {
+      stopifnot(length(logPLSD) == l2)
+      logPLSD <- logPLSD[sel]
     }
   }, error = function(e) {
     msg <- conditionMessage(e)
@@ -1811,6 +1994,9 @@ EnvelopeSort <- function(l1, l2,
   }
   if (!is.null(UB2min)) {
     outlist$UB2min <- UB2min
+  }
+  if (!is.null(logPLSD)) {
+    outlist$logPLSD <- logPLSD
   }
   outlist$sort_ok <- sort_ok
 

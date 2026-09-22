@@ -203,7 +203,7 @@ Rcpp::List rNormalReg(int n,NumericVector y,NumericMatrix x,
     Rcpp::Named("x")=x,
     Rcpp::Named("fit")=fit,
     Rcpp::Named("iters")=draws,
-    Rcpp::Named("Envelope")=NULL
+    Rcpp::Named("Envelope")=R_NilValue
 //  ,  Rcpp::Named("loglike")=LL
   );  
   

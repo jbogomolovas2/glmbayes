@@ -1,10 +1,35 @@
-# glmbayes
+# glmbayes: CMB contribution fork
+
+This contribution branch adds Conway-Maxwell-binomial (CMB) regression to
+[Kjell Nygren's GLMBayes](https://github.com/knygren/glmbayes). It is based on
+upstream commit `7959a42` and our local CMB v1 checkpoint (`0.9.76.9001`).
+It is not an upstream release. Original authorship, copyright notices and
+the package's declared GPL-2 license are retained.
+
+The CMB model uses natural predictors `theta = X beta` and `nu = Z gamma`.
+Use `cmb_augment()` with `rglmb()` and a normal prior. `cmb_fitted()` computes
+expected counts or proportions from the full probability mass function;
+`plogis(theta)` is generally not the expected proportion. See
+[the synthetic example](inst/examples/Ex_CMB.R) and
+[the contribution overview](CMB_CONTRIBUTION.md).
+
+The contribution also fixes shared CPU envelope refinement, extreme-tail
+proposals and RNG reproducibility, and adds bounded rejection failure handling
+and fit diagnostics. These changes affect supported non-CMB sampling paths too.
+There are no random effects or automatic adaptive-grid controls in this fork.
+OpenCL execution is not certified by the CPU validation.
+
+Public validation uses generated data only. Local scientific analyses, raw
+emu observations, backups and experimental adaptation history are excluded.
+See [validation instructions](inst/validation/CMB_VALIDATION.md).
+
+## Upstream package documentation
 
 ![CRAN status](https://www.r-pkg.org/badges/version/glmbayes)
 ![CRAN downloads](https://cranlogs.r-pkg.org/badges/grand-total/glmbayes)
 ![Monthly downloads](https://cranlogs.r-pkg.org/badges/glmbayes)
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/knygren/glmbayes?label=version)
-![License: GPL-3](https://img.shields.io/badge/license-GPL--3-blue.svg)
+![License: GPL-2](https://img.shields.io/badge/license-GPL--2-blue.svg)
 ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/knygren/glmbayes/R-CMD-check.yaml?label=R%20CMD%20Check)
 
 glmbayes provides independent and identically distributed (iid) samples for Bayesian Generalized Linear Models (GLMs).

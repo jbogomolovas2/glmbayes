@@ -78,7 +78,9 @@ List EnvelopeBuild(NumericVector bStar,
                        int n_envopt       = -1,   // NEW: effective sample size for EnvelopeOpt (defaults to n if -1)
                        bool sortgrid      = false,
                        bool use_opencl    = false, // Enables OpenCL acceleration during envelope construction
-                       bool verbose       = false  // Enables diagnostic output
+                       bool verbose       = false, // Enables diagnostic output
+                       bool refine        = true,  // Refine tangencies before evaluating
+                       int  refine_maxit  = 60     // Ceiling on refinement passes
 );
 
 

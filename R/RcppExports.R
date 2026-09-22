@@ -37,8 +37,8 @@ EnvelopeSize_cpp_export <- function(a, G1, Gridtype, n, n_envopt, use_opencl, ve
     .Call(`_glmbayes_EnvelopeSize_cpp_export`, a, G1, Gridtype, n, n_envopt, use_opencl, verbose)
 }
 
-EnvelopeBuild_cpp_export <- function(bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose) {
-    .Call(`_glmbayes_EnvelopeBuild_cpp_export`, bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose)
+EnvelopeBuild_cpp_export <- function(bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose, refine = TRUE, refine_maxit = 60L) {
+    .Call(`_glmbayes_EnvelopeBuild_cpp_export`, bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose, refine, refine_maxit)
 }
 
 EnvelopeBuild_Ind_Normal_Gamma_cpp_export <- function(bStar, A, y, x, mu, P, alpha, wt, family = "binomial", link = "logit", Gridtype = 2L, n = 1L, n_envopt = -1L, sortgrid = FALSE, use_opencl = FALSE, verbose = FALSE) {

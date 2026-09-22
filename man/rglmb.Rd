@@ -87,6 +87,7 @@ list may vary based on the type of prior}
 \item{famfunc}{Family functions used during estimation process}
 \item{iters}{an \code{n} by \code{1} matrix giving the number of candidates generated before acceptance for each sample.}
 \item{Envelope}{the envelope that was used during sampling}
+\item{diagnostics}{Sampling counts, envelope refinement status, and build identity; see \code{\link{print.glmb_diagnostics}}.}
 
 Objects of class \code{"rglmb"} are normally of class \code{c("rglmb","glmb","glm","lm")},
 meaning they inherit from \code{glmb}, \code{glm}, and \code{lm}. This allows methods defined
@@ -138,6 +139,17 @@ support formula-based modeling or method dispatch. Instead, it is called interna
 and may be useful for Gibbs sampling implementations or other workflows where full model
 reconstruction is unnecessary.
 }
+\section{Reproducibility}{
+CPU envelope sampling with normal and independent Normal-Gamma priors is
+controlled by \code{set.seed()}. Each requested draw has its own random stream,
+so worker scheduling, thread count, and pilot/calibration work do not change
+that stream. Serial and parallel paths use the same stream assignment.
+Reproducibility assumes the same package build, inputs, R RNG kind, and
+numerical environment. To preserve a draw prefix when changing \code{n},
+keep the envelope construction unchanged (including \code{n_envopt}).
+These streams differ from versions that used operating-system seeds.
+}
+
 \examples{
 set.seed(333)
 ## Dobson (1990) Page 93: Randomized Controlled Trial :

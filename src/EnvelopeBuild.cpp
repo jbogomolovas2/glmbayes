@@ -10,6 +10,7 @@
 
 #include "famfuncs.h"
 #include "Envelopefuncs.h"
+#include "envelope_refine.h"
 #include <RcppParallel.h>
 #include "openclPort.h"
 #include "progress_utils.h"
@@ -134,7 +135,9 @@ List EnvelopeBuild(NumericVector bStar,
                        int n_envopt,
                        bool sortgrid,
                        bool use_opencl ,        // Enables OpenCL acceleration during envelope construction
-                       bool verbose             // Enables diagnostic output
+                       bool verbose,            // Enables diagnostic output
+                       bool refine,             // Refine tangency points before evaluating
+                       int refine_maxit         // Ceiling on refinement passes
                        
 ){
   
@@ -258,6 +261,37 @@ List EnvelopeBuild(NumericVector bStar,
   arma::mat G4b(G4.begin(), G4.nrow(), G4.ncol(), false);
   
   G4b=trans(G3b);
+
+  // --- optional refinement of the tangency points -------------------------
+  // Nygren & Nygren (2006) give the optimality condition for a restricted
+  // likelihood-subgradient density: the tangency equals the expectation under
+  // that restricted density.  The z* +/- omega positions above are a
+  // closed-form normal-calibrated approximation to it -- excellent when the
+  // posterior is close to Gaussian, and capable of being catastrophically
+  // misplaced when it is not.  Run a short damped fixed point from those
+  // positions toward the stated condition.
+  //
+  // Validity does not depend on this: any tangent to a concave log-likelihood
+  // is a valid upper envelope, so refinement changes the rejection constant
+  // and nothing else.  Cells whose refinement fails keep their original
+  // tangency.
+  double refine_dlogW = 0.0, refine_resid = R_NaReal;
+  int refine_iters = 0;
+  Rcpp::List refinement;
+  if (refine) {
+    refine_iters = glmbayes::env::refine_tangency(
+        G4, GIndex, Lint, y, x, mu, P, alpha, wt,
+        family, link, use_opencl, verbose,
+        refine_maxit, /*rho0*/ 1.0, /*tol*/ 1e-6, /*min_gain*/ 0.0,
+        &refine_dlogW, &refine_resid, true, &refinement);
+    refinement["cell_grid_index"] = Rcpp::clone(GIndex);
+
+    // Keep G3 consistent with the refined G4.  Set_LogP.cpp forms the linear
+    // term of the cell weight from G3, and the Envelope reports G3 as
+    // thetabars, so leaving G3 stale would pair original tangencies with new
+    // gradients.
+    G3b = trans(G4b);
+  }
   
   // Allocate containers for evaluation results (cbars, NegLL, logP, etc.)
   
@@ -367,15 +401,43 @@ List EnvelopeBuild(NumericVector bStar,
   double sumP=sum(PLSD);
   
   PLSD=PLSD/sumP;
+
+  // The same normalized weights in LOG space.  exp() underflows to exactly
+  // zero below about -745, so an envelope whose cell log-weights span more
+  // than that loses its smallest cells in the PLSD representation while the
+  // log values remain perfectly finite.  Carrying both costs one vector and
+  // changes nothing: PLSD above is untouched and is still what the samplers
+  // use.  This commit only makes the log form available.
+  NumericVector logPLSD(logP2.size());
+  {
+    double lse = R_NegInf;
+    for (int i = 0; i < logP2.size(); ++i) {
+      double v = logP2[i];
+      if (v == R_NegInf) continue;
+      if (lse == R_NegInf) { lse = v; continue; }
+      double M = (v > lse) ? v : lse;
+      double mn = (v > lse) ? lse : v;
+      lse = M + std::log1p(std::exp(mn - M));
+    }
+    for (int i = 0; i < logP2.size(); ++i) logPLSD[i] = logP2[i] - lse;
+  }
   
   
   bool bad = false;
   
+  // A normalized weight of exactly zero is a failure only if the LOG weight is
+  // also unusable.  exp() underflowing on a cell whose log weight is finite is
+  // a representation limit, not a defect: such a cell carries negligible mass
+  // and the sampler selects from the log weights instead.  NaN and +Inf remain
+  // hard errors.  -Inf is a legitimate zero-mass cell.
   for (int i = 0; i < PLSD.size(); ++i) {
     double v = PLSD[i];
-    if (!R_finite(v) || v <= 0.0) {
+    double lv = logPLSD[i];
+    if (v == 0.0 && R_finite(lv)) continue;      // representation underflow
+    if (!R_finite(v) || v < 0.0 || ISNAN(lv) || lv == R_PosInf) {
       Rcout << "[ERROR] Invalid PLSD at index " << i
             << "  value=" << v
+            << "  logPLSD=" << lv
             << "  logP2=" << logP2[i]
             << "  maxlogP=" << maxlogP
             << "\n";
@@ -440,7 +502,8 @@ List EnvelopeBuild(NumericVector bStar,
     //               << "\n";
     // }
 
-    Rcpp::List outlist = EnvSort(l1, l2, GIndex, G3, cbars, logU, logrt, loglt, logP, LLconst, PLSD, a_1, E_draws);
+    Rcpp::List outlist = EnvSort(l1, l2, GIndex, G3, cbars, logU, logrt, loglt, logP, LLconst, PLSD, a_1, E_draws,
+                                 R_NilValue, R_NilValue, logPLSD);
 
     if (outlist.containsElementNamed("sort_ok") && !Rcpp::as<bool>(outlist["sort_ok"])) {
       if (verbose) {
@@ -456,7 +519,9 @@ List EnvelopeBuild(NumericVector bStar,
         Rcpp::Named("LLconst")  = LLconst,
         Rcpp::Named("logP")     = logP(_, 0),
         Rcpp::Named("PLSD")     = PLSD,
+        Rcpp::Named("logPLSD")  = logPLSD,
         Rcpp::Named("a1")       = a_1,
+        Rcpp::Named("refinement") = refinement,
         Rcpp::Named("E_draws")  = E_draws
       );
     }
@@ -465,6 +530,7 @@ List EnvelopeBuild(NumericVector bStar,
                   << glmbayes::progress::timestamp_cpp()
                   << "\n";
     }
+    outlist["refinement"] = refinement;
     return(outlist);
     
   }
@@ -481,7 +547,9 @@ List EnvelopeBuild(NumericVector bStar,
                             Rcpp::Named("LLconst")=LLconst,
                             Rcpp::Named("logP")=logP(_,0),
                             Rcpp::Named("PLSD")=PLSD,
+                            Rcpp::Named("logPLSD")=logPLSD,
                             Rcpp::Named("a1")=a_1,
+                            Rcpp::Named("refinement")=refinement,
                             Rcpp::Named("E_draws")=E_draws
   );
   

@@ -37,3 +37,10 @@
 ^legacy_c_code$
 ^legacy_code$
 ^inst/DESIGN_RGLM_BLOCKS\.md$
+^output$
+^outputs$
+^work$
+^library$
+^src/Makevars$
+(^|/)\.DS_Store$
+\.bak($|_|[0-9])

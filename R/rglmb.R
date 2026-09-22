@@ -31,12 +31,23 @@
 #' \item{famfunc}{Family functions used during estimation process}
 #' \item{iters}{an \code{n} by \code{1} matrix giving the number of candidates generated before acceptance for each sample.}
 #' \item{Envelope}{the envelope that was used during sampling}
+#' \item{diagnostics}{Sampling counts, envelope refinement status, and build identity; see \code{\link{print.glmb_diagnostics}}.}
 #' 
 #' Objects of class \code{"rglmb"} are normally of class \code{c("rglmb","glmb","glm","lm")},
 #' meaning they inherit from \code{glmb}, \code{glm}, and \code{lm}. This allows methods defined
 #' for these upstream classes to be applied to \code{"rglmb"} objects when appropriate, while
 #' supporting extensions for regularized Bayesian GLMs with structured priors.
 #' 
+#' @section Reproducibility:
+#' CPU envelope sampling with normal and independent Normal-Gamma priors is
+#' controlled by \code{set.seed()}. Each requested draw has its own random stream,
+#' so worker scheduling, thread count, and pilot/calibration work do not change
+#' that stream. Serial and parallel paths use the same stream assignment.
+#' Reproducibility assumes the same package build, inputs, R RNG kind, and
+#' numerical environment. To preserve a draw prefix when changing \code{n},
+#' keep the envelope construction unchanged (including \code{n_envopt}).
+#' These streams differ from versions that used operating-system seeds.
+#'
 #' @details
 #' The function \code{rglmb} is a minimalistic engine for Bayesian generalized linear model simulation. 
 #' It is designed to generate independent draws from the posterior distribution of a GLM, given a design matrix, 
@@ -244,9 +255,9 @@ rglmb<-function(n=1,y,x,family=gaussian(),pfamily,offset=NULL,
   )
   
   ## Call relevant simulation function (for now without control2 list)
-  outlist = simfun(n = n, y = y, x = x, prior_list = prior_list,offset = offset, weights = weights, family = family, 
+  outlist = .glmb_run_simulation(simfun(n = n, y = y, x = x, prior_list = prior_list,offset = offset, weights = weights, family = family,
                    Gridtype=Gridtype,n_envopt = n_envopt,   # pass through
-                   use_parallel = use_parallel, use_opencl = use_opencl, verbose = verbose)
+                   use_parallel = use_parallel, use_opencl = use_opencl, verbose = verbose), args=simfun_args)
 
   if (pfamily$pfamily == "dIndependent_Normal_Gamma") {
     if (!is.null(outlist$sim_bounds)) {

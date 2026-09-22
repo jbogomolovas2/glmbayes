@@ -147,7 +147,7 @@ Elements include:
 \item{\code{call}}{Matched call to \code{rindepNormalGamma_reg()}.}
 \item{\code{famfunc}}{Processed family functions for Gaussian models (from \code{glmbfamfunc}).}
 \item{\code{iters}}{Vector with per-draw iteration counts returned by the joint sampler.}
-\item{\code{Envelope}}{\code{NULL}; envelope diagnostics are not returned by this function.}
+\item{\code{Envelope}}{Envelope used for accept-reject sampling, including available refinement diagnostics.}
 \item{\code{loglike}}{\code{NULL}; placeholder for log-likelihood values.}
 \item{\code{weight_out}}{Numeric vector of per-draw weights returned by the C++ routine.}
 \item{\code{sim_bounds}}{List with \code{low} and \code{upp}, the dispersion bounds used by the shared envelope.}

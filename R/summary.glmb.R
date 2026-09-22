@@ -219,6 +219,7 @@ summary.glmb<-function(object,...){
   rownames(TAB2)<-rownames(TAB)
   
   res<-list(
+    diagnostics=object$diagnostics,
     call=object$call,
     n=n,
     residuals=mres,
@@ -301,6 +302,7 @@ print.summary.glmb<-function(x,digits = max(3, getOption("digits") - 3),...){
   cat("DIC:",x$DIC,"\n\n")
   cat("Expected Mean dispersion:",x$dispersion,"\n")
   cat("Sq.root of Expected Mean dispersion:",sqrt(x$dispersion),"\n\n")
+  if(!is.null(x$diagnostics)) print(x$diagnostics) else
   cat("Mean Likelihood Subgradient Candidates Per iid sample:",x$iters,"\n\n")
   
   

@@ -86,8 +86,15 @@ summary.rglmb<-function(object,...){
     
   }
     
-  linkinv<-object$family$linkinv
-  fitted.values<-linkinv(linear.predictors)
+  ## CMB has no univariate inverse link: E[Y] depends on theta and nu jointly
+  ## and needs m, which is not recoverable from the linear predictor.  Compute
+  ## the fitted means directly instead.
+  if (!is.null(object$family) && identical(object$family$family, "cmb")) {
+    fitted.values <- cmb_fitted(object)
+  } else {
+    linkinv<-object$family$linkinv
+    fitted.values<-linkinv(linear.predictors)
+  }
 
 
   ##################################################
@@ -121,9 +128,24 @@ summary.rglmb<-function(object,...){
   }
 
   ## Add call to glm to recover the mle information
-  glm_mle=glm(y~x-1,family=object$family,weights=wtin)
-  ml<-coef(glm_mle) 
-  se1<-sqrt(diag(vcov(glm_mle)))
+  ##
+  ## CMB has no stats::family apparatus (no variance/mu.eta/dev.resids), so
+  ## glm.fit cannot run.  That is deliberate: variance(mu) presumes the
+  ## variance is a function of the mean alone, which is exactly what CMB
+  ## denies.  Supplying a stub would make glm() converge to a number that
+  ## would then be printed in the "Max Like." column as if it meant something.
+  ## Report NA instead; every posterior quantity below is unaffected.
+  is_cmb <- !is.null(object$family) && identical(object$family$family, "cmb")
+
+  if (is_cmb) {
+    glm_mle <- NULL
+    ml  <- rep(NA_real_, ncol(object$coefficients))
+    se1 <- rep(NA_real_, ncol(object$coefficients))
+  } else {
+    glm_mle=glm(y~x-1,family=object$family,weights=wtin)
+    ml<-coef(glm_mle)
+    se1<-sqrt(diag(vcov(glm_mle)))
+  }
     
 
   R <- chol(object$Prior$Precision)
@@ -171,13 +193,14 @@ summary.rglmb<-function(object,...){
   rownames(TAB2) <- coef_names
 
   res<-list(
+    diagnostics=object$diagnostics,
     coefficients=object$coefficients,
     coef.means=colMeans(object$coefficients),
     coef.mode=object$mode,
     dispersion=mean(object$dispersion),
     Prior=object$Prior,
     fitted.values=fitted.values,
-    family=family(glm_mle),
+    family=if (is_cmb) object$family else family(glm_mle),
     linear.predictors=linear.predictors,
     deviance=DICinfo$Deviance,
     pD=DICinfo$pD,
@@ -187,7 +210,7 @@ summary.rglmb<-function(object,...){
     prior.weights=object$prior.weights,
     y=object$y,
     x=object$x,
-    model=model.frame(glm_mle),
+    model=if (is_cmb) NULL else model.frame(glm_mle),
     call = object$call,
     formula=object$formula,
     data=object$data,
@@ -236,8 +259,8 @@ print.summary.rglmb<-function(x,digits = max(3, getOption("digits") - 3),...){
   cat("DIC:",x$DIC,"\n\n")
   cat("Expected Mean dispersion:",x$dispersion,"\n")
   cat("Sq.root of Expected Mean dispersion:",sqrt(x$dispersion),"\n\n")
+  if(!is.null(x$diagnostics)) print(x$diagnostics) else
   cat("Mean Likelihood Subgradient Candidates Per iid sample:",mean(x$iters),"\n\n")
 
 }
-
 

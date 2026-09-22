@@ -297,12 +297,14 @@ Rcpp::List EnvelopeBuild_cpp_export(
     int n_envopt,
     bool sortgrid,
     bool use_opencl,
-    bool verbose
+    bool verbose,
+    bool refine = true,
+    int refine_maxit = 60
 ) {
   return glmbayes::env::EnvelopeBuild(
     bStar, A, y, x, mu, P, alpha, wt,
     family, link, Gridtype, n, n_envopt,
-    sortgrid, use_opencl, verbose
+    sortgrid, use_opencl, verbose, refine, refine_maxit
   );
 }
 

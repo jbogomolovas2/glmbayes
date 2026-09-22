@@ -116,6 +116,7 @@ double g2_face_at_disp(
 // rIndepNormalGammaReg_worker: parallel Normal–Gamma simulation with envelope
 //-----------------------------------------------------------------------------
 struct rIndepNormalGammaReg_worker : public RcppParallel::Worker {
+  const std::uint64_t job_seed;
   // --- Inputs ---
   int n;
   
@@ -132,6 +133,7 @@ struct rIndepNormalGammaReg_worker : public RcppParallel::Worker {
   RcppParallel::RVector<double>       PLSD_r;
   RcppParallel::RMatrix<double>       loglt_r;
   RcppParallel::RMatrix<double>       logrt_r;
+  RcppParallel::RMatrix<double>       logU_r;
   
   // UB vectors
   RcppParallel::RVector<double>       lg_prob_factor_r;
@@ -157,6 +159,7 @@ struct rIndepNormalGammaReg_worker : public RcppParallel::Worker {
   // --- Constructor ---
   rIndepNormalGammaReg_worker(
     int n_,
+    std::uint64_t job_seed_,
     const RcppParallel::RVector<double>& y_r_,
     const RcppParallel::RMatrix<double>& x_r_,
     const RcppParallel::RMatrix<double>& mu_r_,
@@ -167,6 +170,7 @@ struct rIndepNormalGammaReg_worker : public RcppParallel::Worker {
     const RcppParallel::RVector<double>& PLSD_r_,
     const RcppParallel::RMatrix<double>& loglt_r_,
     const RcppParallel::RMatrix<double>& logrt_r_,
+    const RcppParallel::RMatrix<double>& logU_r_,
     const RcppParallel::RVector<double>& lg_prob_factor_r_,
     const RcppParallel::RVector<double>& UB2min_r_,
     double shape3_, double rate2_,
@@ -184,9 +188,9 @@ struct rIndepNormalGammaReg_worker : public RcppParallel::Worker {
     RcppParallel::RVector<double>& disp_out_r_,
     RcppParallel::RVector<double>& iters_out_r_,
     RcppParallel::RVector<double>& weight_out_r_)
-    : n(n_),
+    : job_seed(job_seed_), n(n_),
       y_r(y_r_), x_r(x_r_), mu_r(mu_r_), P_r(P_r_), alpha_r(alpha_r_), wt_r(wt_r_),
-      cbars_r(cbars_r_), PLSD_r(PLSD_r_), loglt_r(loglt_r_), logrt_r(logrt_r_),
+      cbars_r(cbars_r_), PLSD_r(PLSD_r_), loglt_r(loglt_r_), logrt_r(logrt_r_), logU_r(logU_r_),
       lg_prob_factor_r(lg_prob_factor_r_), UB2min_r(UB2min_r_),
       shape3(shape3_), rate2(rate2_), disp_upper(disp_upper_), disp_lower(disp_lower_),
       RSS_Min(RSS_Min_), max_New_LL_UB(max_New_LL_UB_), max_LL_log_disp(max_LL_log_disp_),
@@ -205,6 +209,7 @@ void rIndepNormalGammaReg_worker::operator()(std::size_t begin, std::size_t end)
   const int l1 = x_r.ncol();
 
   for (std::size_t i = begin; i < end; ++i) {
+    seed_draw(job_seed, i);
     // Thread-local buffers and views (no shared state)
     std::vector<double> out_buf(static_cast<std::size_t>(l1), 0.0);
     RcppParallel::RMatrix<double> out_row(out_buf.data(), 1,  l1);  // 1×l1
@@ -253,7 +258,7 @@ void rIndepNormalGammaReg_worker::operator()(std::size_t begin, std::size_t end)
           logrt_r(J_idx, j),
           loglt_r(J_idx, j),
           -cbars_r(J_idx, j),
-          1.0
+          1.0, logU_r(J_idx, j)
         );
       }
 
@@ -514,6 +519,9 @@ Rcpp::List  rIndepNormalGammaReg_std(int n,NumericVector y,NumericMatrix x,
   NumericVector PLSD=Envelope["PLSD"];
   NumericMatrix loglt=Envelope["loglt"];
   NumericMatrix logrt=Envelope["logrt"];
+  NumericMatrix logU(logrt.nrow(), logrt.ncol());
+  std::fill(logU.begin(), logU.end(), NA_REAL);
+  if (Envelope.containsElementNamed("logU")) logU = as<NumericMatrix>(Envelope["logU"]);
   
   double RSS_Min=UB_list["RSS_Min"];
   NumericVector UB2min=UB_list["UB2min"];
@@ -540,7 +548,9 @@ Rcpp::List  rIndepNormalGammaReg_std(int n,NumericVector y,NumericMatrix x,
   
 
   
+  const auto job_seed = seed_from_R();
   for(int i=0;i<n;i++){
+    seed_draw(job_seed, i);
 
     Rcpp::checkUserInterrupt();
     
@@ -563,7 +573,7 @@ Rcpp::List  rIndepNormalGammaReg_std(int n,NumericVector y,NumericMatrix x,
       
       // Simulate from discrete distribution
       
-      U=R::runif(0.0, 1.0);
+      U=runif_safe();
       a2=0;
       J(0)=0;    
       while(a2==0){
@@ -579,7 +589,7 @@ Rcpp::List  rIndepNormalGammaReg_std(int n,NumericVector y,NumericMatrix x,
             
       // Simulate for beta
       
-      for(int j=0;j<l1;j++){  out(0,j)=rnorm_ct(logrt(J(0),j),loglt(J(0),j),-cbars(J(0),j),1.0);          }
+      for(int j=0;j<l1;j++){  out(0,j)=rnorm_ct(logrt(J(0),j),loglt(J(0),j),-cbars(J(0),j),1.0,logU(J(0),j));          }
       
       dispersion=rinvgamma_ct_safe(shape3,rate2,disp_upper,disp_lower);
       
@@ -598,7 +608,7 @@ Rcpp::List  rIndepNormalGammaReg_std(int n,NumericVector y,NumericMatrix x,
       
     
       
-      U2=R::runif(0.0, 1.0);
+      U2=runif_safe();
       
       double log_U2=log(U2);
       NumericVector J_out=J;
@@ -797,6 +807,9 @@ Rcpp::List rIndepNormalGammaReg_std_parallel(
   Rcpp::NumericVector PLSD           = Envelope["PLSD"];
   Rcpp::NumericMatrix loglt          = Envelope["loglt"];
   Rcpp::NumericMatrix logrt          = Envelope["logrt"];
+  Rcpp::NumericMatrix logU(logrt.nrow(), logrt.ncol());
+  std::fill(logU.begin(), logU.end(), NA_REAL);
+  if (Envelope.containsElementNamed("logU")) logU = as<NumericMatrix>(Envelope["logU"]);
   double RSS_Min                     = UB_list["RSS_Min"];
   Rcpp::NumericVector UB2min         = UB_list["UB2min"];
 
@@ -851,6 +864,7 @@ Rcpp::List rIndepNormalGammaReg_std_parallel(
   RcppParallel::RVector<double> PLSD_r(PLSD);
   RcppParallel::RMatrix<double> loglt_r(loglt);
   RcppParallel::RMatrix<double> logrt_r(logrt);
+  RcppParallel::RMatrix<double> logU_r(logU);
 
   RcppParallel::RVector<double> lg_prob_factor_r(lg_prob_factor);
   RcppParallel::RVector<double> UB2min_r(UB2min);
@@ -863,10 +877,11 @@ Rcpp::List rIndepNormalGammaReg_std_parallel(
 
 
   // Construct worker
+  const auto job_seed = seed_from_R();
   rIndepNormalGammaReg_worker worker(
-      n,
+      n, job_seed,
       y_r, x_r, mu_r, P_r, alpha_r, wt_r,
-      cbars_r, PLSD_r, loglt_r, logrt_r,
+      cbars_r, PLSD_r, loglt_r, logrt_r, logU_r,
       lg_prob_factor_r, UB2min_r,
       shape3, rate2, disp_upper, disp_lower,
       RSS_Min, max_New_LL_UB, max_LL_log_disp,
@@ -1446,7 +1461,8 @@ Rcpp::List rIndepNormalGammaReg(
     Rcpp::Named("iters_out")  = iters_out,
     Rcpp::Named("weight_out") = weight_out,
     Rcpp::Named("low")        = low,
-    Rcpp::Named("upp")        = upp
+    Rcpp::Named("upp")        = upp,
+    Rcpp::Named("Envelope")   = Env3
   );
 }  
   

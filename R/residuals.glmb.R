@@ -60,6 +60,19 @@ residuals.rglmb <- function(object, ysim = NULL, ...) {
   n   <- nrow(object$coefficients)
   wts <- object$prior.weights
   
+  ## CMB deviance residuals are not available.  dev.resids(y, mu, wt) presumes
+  ## the deviance contribution of an observation is a function of its mean
+  ## alone; for CMB it also depends on nu_i, and the saturated model must be
+  ## solved per observation at that nu.  The total deviance IS available
+  ## (famfunc$f4, validated against glm() at nu = 1) -- only the per-
+  ## observation decomposition is missing.
+  if (!is.null(object$family) && identical(object$family$family, "cmb")) {
+    stop("deviance residuals are not implemented for the CMB family. ",
+         "Use cmb_fitted(object) for fitted means, cmb_nu(object) for the ",
+         "fitted dispersion, or deviance() for the total deviance.",
+         call. = FALSE)
+  }
+
   # 1) build a matrix (n * length(y)) of linear predictors and fitted values
   lp_mat <- t(object$x %*% t(object$coefficients))
   fv_mat <- object$family$linkinv(lp_mat)

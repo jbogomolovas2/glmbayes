@@ -461,6 +461,7 @@ glmb<-function (formula, family = binomial,pfamily=dNormal(mu,Sigma,dispersion=1
     fit=sim$fit,
     famfunc=famfunc,
     iters=sim$iters,
+    diagnostics=sim$diagnostics,
     contrasts=fit$contrasts,	  
     xlevels=fit$xlevels,
     pfamily=pfamily,

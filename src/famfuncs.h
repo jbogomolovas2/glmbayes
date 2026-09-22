@@ -103,6 +103,44 @@ Rcpp::List f2_f3_binomial_logit(
     int                  progbar = 0
 );
 
+//----------------- Conway-Maxwell-binomial (cmb) ------------------------------
+// Natural parametrisation: theta = x'beta on rows 1..N, nu on row N+1 of an
+// AUGMENTED design.  nu is a row, not a coordinate of b, so the split of the
+// linear predictor survives the right-multiplications applied by
+// glmb_Standardize_Model.  See src/famfuncs_cmb.cpp for the full rationale.
+
+NumericVector f1_cmb(NumericMatrix b, NumericVector y, NumericMatrix x,
+                     NumericVector alpha, NumericVector wt);
+
+NumericVector f2_cmb(NumericMatrix b, NumericVector y, NumericMatrix x,
+                     NumericMatrix mu, NumericMatrix P, NumericVector alpha,
+                     NumericVector wt, int progbar);
+
+arma::mat f3_cmb(NumericMatrix b, NumericVector y, NumericMatrix x,
+                 NumericMatrix mu, NumericMatrix P, NumericVector alpha,
+                 NumericVector wt, int progbar);
+
+arma::vec f2_cmb_rmat(
+    const RMatrix<double>& b,
+    const RVector<double>& y,
+    const RMatrix<double>& x,
+    const RMatrix<double>& mu,
+    const RMatrix<double>& P,
+    const RVector<double>& alpha,
+    const RVector<double>& wt,
+    int progbar);
+
+Rcpp::List f2_f3_cmb(
+    Rcpp::NumericMatrix  b,
+    Rcpp::NumericVector  y,
+    Rcpp::NumericMatrix  x,
+    Rcpp::NumericMatrix  mu,
+    Rcpp::NumericMatrix  P,
+    Rcpp::NumericVector  alpha,
+    Rcpp::NumericVector  wt,
+    int                  progbar = 0
+);
+
 //----------------- binomial_Probit -------------------------------------------------
   
 NumericVector  f1_binomial_probit(NumericMatrix b,NumericVector y,NumericMatrix x,NumericVector alpha,NumericVector wt);

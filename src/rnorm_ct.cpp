@@ -9,6 +9,7 @@
 // [[Rcpp::depends(RcppArmadillo)]]
 
 #include <math.h>
+#include <algorithm>
 #include "rng_utils.h"
 
 
@@ -37,39 +38,31 @@ double safe_qnorm_logp(double logp, double mu, double sigma, bool lower_tail) {
 namespace glmbayes {
 namespace rng {
 
-    double rnorm_ct(double lgrt, double lglt, double mu, double sigma) {
-  double U = 0;
-  double out = 0;
-  
-  if (lgrt >= lglt) {
-    U = runif_safe();
-    
-    // u1 = 1 - exp(lgrt)  →  -expm1(lgrt)
-    double u1   = -std::expm1(lgrt);
-    double lgu1 = std::log(u1);
-    
-    // log(1 - exp(lgu1 - lglt)) → log(-expm1(lgu1 - lglt))
-    double lgU2 = std::log(U) + lglt + std::log(-std::expm1(lgu1 - lglt));
-    double lgU3 = lgU2 + std::log1p(std::exp(lgu1 - lgU2));
-    
-    out = safe_qnorm_logp(lgU3, mu, sigma, true);
-    
-  } else {
-    U = runif_safe();
-    
-    // e1mu2 = 1 - exp(lglt) → -expm1(lglt)
-    double e1mu2  = -std::expm1(lglt);
-    double lg1mu2 = std::log(e1mu2);
-    
-    // log(1 - exp(lg1mu2 - lgrt)) → log(-expm1(lg1mu2 - lgrt))
-    double lgU2 = std::log(U) + lgrt + std::log(-std::expm1(lg1mu2 - lgrt));
-    double lgU3 = lgU2 + std::log1p(std::exp(lg1mu2 - lgU2));
-    
-    out = safe_qnorm_logp(lgU3, mu, sigma, false);
-  }
-  
-  return out;
+// Compatibility for callers with only the two tail probabilities. These
+// cannot encode both endpoints in extreme tails; new envelopes supply logU.
+double rnorm_ct(double lgrt, double lglt, double mu, double sigma) {
+  const bool lower = lgrt >= lglt;
+  const double anchor = lower ? lglt : lgrt;
+  const double opposite = lower ? lgrt : lglt;
+  const double other_endpoint = std::log(-std::expm1(opposite));
+  const double log_mass = anchor + std::log(-std::expm1(other_endpoint - anchor));
+  if (std::isnan(log_mass)) return R_NaN;
+  return rnorm_ct(lgrt, lglt, mu, sigma, log_mass);
 }
 
+double rnorm_ct(double lgrt, double lglt, double mu, double sigma, double log_mass) {
+  if (std::isnan(log_mass)) return rnorm_ct(lgrt, lglt, mu, sigma);
+  const bool lower = lgrt >= lglt;
+  const double anchor = lower ? lglt : lgrt;
+  // Subtract U times the interval mass from the larger endpoint probability,
+  // using the stable tail. Never recover an endpoint by complementing a tail
+  // that may already have rounded to zero (e.g. pnorm(100, log.p=TRUE)).
+  double U;
+  do { U = runif_safe(); } while (U == 0.0);
+  const double fraction = std::exp(std::min(0.0, log_mass - anchor));
+  const double logp = anchor + std::log1p(-U * fraction);
+  return safe_qnorm_logp(logp, mu, sigma, lower);
 }
-}
+
+} // namespace rng
+} // namespace glmbayes

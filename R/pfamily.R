@@ -279,9 +279,10 @@ dNormal<-function(mu,Sigma,dispersion=NULL){
     if(!length(dispersion)>0) stop("dispersion must be >0")
   }
     
-  okfamilies <- c("gaussian","poisson","binomial","quasipoisson","quasibinomial","Gamma")
+  okfamilies <- c("gaussian","poisson","binomial","quasipoisson","quasibinomial","Gamma","cmb")
 
   plinks<-function(family){
+    if(family$family=="cmb") oklinks<-c("identity")
     if(family$family=="gaussian") oklinks<-c("identity")
     if(family$family=="poisson"||family$family=="quasipoisson") oklinks<-c("log")		
     if(family$family=="binomial"||family$family=="quasibinomial") oklinks<-c("logit","probit","cloglog")		
@@ -666,3 +667,156 @@ dIndependent_Normal_Gamma <- function(mu, Sigma, shape, rate, max_disp_perc = 0.
 }
 
 
+#' Conway-Maxwell-binomial family for glmbayes
+#'
+#' A minimal family object for the Conway-Maxwell-binomial distribution in its
+#' natural parametrisation,
+#' \deqn{\log f(y \mid \theta, \nu) = \theta y + \nu t(y) - \kappa(\theta,\nu),}
+#' with \eqn{t(y) = \log \binom{m}{y}} and \eqn{\kappa} the log-sum-exp
+#' normaliser over \eqn{y = 0, \dots, m}.  The log-likelihood is globally
+#' concave in \eqn{(\beta, \nu)} because \eqn{\kappa} is a log-sum-exp of
+#' affine functions.
+#'
+#' \strong{This is not a \code{stats::family} object.}  It deliberately omits
+#' \code{linkinv}, \code{variance}, \code{mu.eta} and \code{dev.resids}.
+#' \code{variance(mu)} presumes the variance is a function of the mean alone,
+#' which CMB denies: \eqn{\mathrm{Var}(Y)} depends on \eqn{\nu} as well.  That
+#' is the property which makes the family able to span under- and
+#' over-dispersion on one axis, so supplying a fake \code{variance} would be
+#' worse than omitting it.
+#'
+#' \strong{Augmented design.}  \eqn{\nu} is carried as an extra ROW of the
+#' design matrix rather than as a coordinate of the parameter vector, because
+#' the sampler rotates the model (\eqn{x \to x L^{-1}}, \eqn{b \to L b}) and
+#' only a linear functional expressed as a row survives that rotation.  Use
+#' \code{cmb_augment()} to build \code{x}, \code{y} and \code{weights}.
+#'
+#' @param link character; only \code{"identity"} is meaningful, since
+#'   \eqn{\theta} is the natural parameter and takes no transformation.
+#' @return A list with class \code{"family"} carrying \code{family} and
+#'   \code{link} only.
+#' @export
+cmb <- function(link = "identity") {
+  link <- match.arg(link, c("identity"))
+  structure(
+    list(family = "cmb",
+         link = link,
+         valideta = function(eta) TRUE,
+         validmu = function(mu) TRUE),
+    class = "family")
+}
+
+#' Build the augmented design for a CMB fit
+#'
+#' CMB carries \eqn{\nu} as an extra row of the design matrix.  This helper
+#' assembles the augmented \code{x}, the proportion response and the weight
+#' vector carrying the trial counts, in the layout \code{rglmb()} expects.
+#'
+#' @param X N x p design matrix for \eqn{\theta}.
+#' @param yc length-N vector of counts.
+#' @param m length-N vector of trial counts (or a scalar, recycled).
+#' @param Z N x q design matrix for \eqn{\nu}; defaults to an intercept.
+#' @return A list with \code{x} (2N x (p+q)), \code{y}, \code{weights} and
+#'   \code{offset}. The final N entries of \code{y} and \code{weights} are
+#'   placeholders for the \eqn{\nu} rows and are never read.
+#' @export
+cmb_augment <- function(X, yc, m, Z = NULL) {
+  X <- as.matrix(X)
+  N <- nrow(X); p <- ncol(X)
+  if (length(m) == 1L) m <- rep(m, N)
+  if (length(yc) != N || length(m) != N)
+    stop("yc and m must have length nrow(X)")
+  if (any(yc < 0 | yc > m)) stop("counts outside [0, m]")
+
+  if (is.null(Z)) Z <- matrix(1, N, 1, dimnames = list(NULL, "nu"))
+  Z <- as.matrix(Z)
+  if (nrow(Z) != N) stop("Z must have nrow(X) rows")
+  q <- ncol(Z)
+
+  cnX <- colnames(X); if (is.null(cnX)) cnX <- paste0("x", seq_len(p))
+  cnZ <- colnames(Z); if (is.null(cnZ)) cnZ <- paste0("nu", seq_len(q))
+
+  ## Stack: theta rows on top, nu rows beneath, block-diagonal so that
+  ## (x %*% b)[1:N] = X beta and (x %*% b)[N + 1:N] = Z gamma.
+  xa <- rbind(cbind(X, matrix(0, N, q)),
+              cbind(matrix(0, N, p), Z))
+  colnames(xa) <- c(cnX, cnZ)
+
+  list(x = xa,
+       y = c(yc / m, rep(0, N)),
+       weights = c(m, rep(1, N)),
+       offset = rep(0, 2L * N))
+}
+
+
+#' Is this a CMB fit?
+#' @keywords internal
+.is_cmb <- function(object) {
+  !is.null(object$family) && identical(object$family$family, "cmb")
+}
+
+#' Number of observations in a CMB fit
+#'
+#' The stacked design carries two rows per observation (theta then nu), so
+#' nrow(x) is 2N.  This returns N.
+#' @keywords internal
+.cmb_nobs <- function(object) nrow(object$x) %/% 2L
+
+#' Trial counts m for a CMB fit
+#'
+#' m rides in the weight slot, exactly as for binomial.  The first N entries
+#' of prior.weights are the trial counts; the rest are nu-row placeholders.
+#' @keywords internal
+.cmb_m <- function(object) {
+  N <- .cmb_nobs(object)
+  round(as.numeric(object$prior.weights)[seq_len(N)])
+}
+
+#' Fitted means for a CMB fit
+#'
+#' E[Y_i] from the same log-sum-exp table the likelihood uses, on the
+#' proportion scale (E[Y_i]/m_i) to match the binomial convention where the
+#' response is a proportion.
+#'
+#' There is no univariate inverse link for CMB: the mean depends on theta and
+#' nu jointly, so this cannot be expressed as family$linkinv(eta).
+#'
+#' @param object a fitted CMB model from \code{rglmb}.
+#' @param scale "proportion" (default) or "count" for E[Y_i].
+#' @return An n_draws x N matrix.
+#' @export
+cmb_fitted <- function(object, scale = c("proportion", "count")) {
+  scale <- match.arg(scale)
+  if (!.is_cmb(object)) stop("cmb_fitted() is for CMB fits only")
+  N <- .cmb_nobs(object)
+  m <- .cmb_m(object)
+  eta <- t(object$x %*% t(object$coefficients))   # n_draws x 2N
+  nd <- nrow(eta)
+  out <- matrix(0, nd, N)
+  tabs <- lapply(sort(unique(m)), function(mm) lchoose(mm, 0:mm))
+  names(tabs) <- as.character(sort(unique(m)))
+  for (k in seq_len(nd)) {
+    th <- eta[k, seq_len(N)]
+    nu <- eta[k, N + seq_len(N)]
+    for (i in seq_len(N)) {
+      mi <- m[i]; j <- 0:mi
+      lw <- th[i] * j + nu[i] * tabs[[as.character(mi)]]
+      w <- exp(lw - max(lw))
+      out[k, i] <- sum(w * j) / sum(w)
+    }
+  }
+  if (scale == "proportion") out <- sweep(out, 2L, m, "/")
+  out
+}
+
+#' Fitted dispersion parameter nu for a CMB fit
+#'
+#' @param object a fitted CMB model from \code{rglmb}.
+#' @return An n_draws x N matrix of nu_i.
+#' @export
+cmb_nu <- function(object) {
+  if (!.is_cmb(object)) stop("cmb_nu() is for CMB fits only")
+  N <- .cmb_nobs(object)
+  eta <- t(object$x %*% t(object$coefficients))
+  eta[, N + seq_len(N), drop = FALSE]
+}

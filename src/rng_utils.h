@@ -40,11 +40,18 @@
 #ifndef RNG_UTILS_H
 #define RNG_UTILS_H
 
+#include <cstdint>
+
 namespace glmbayes{
 
 namespace rng {
 
-// Thread-safe uniform RNG [0, 1)
+// Draw a job key from R's RNG on the main thread, inside an RNGScope.
+std::uint64_t seed_from_R();
+// Reset the current thread's stream for one output row. Workers share the
+// immutable job key; stream identity depends on the row, never the thread.
+void seed_draw(std::uint64_t job_seed, std::uint64_t draw_index);
+// Thread-safe uniform RNG (0, 1), used only after seed_draw().
 double runif_safe();
 
 double rinvgamma_ct_safe(double shape,
@@ -55,6 +62,9 @@ double rinvgamma_ct_safe(double shape,
 
 
 double  rnorm_ct(double lgrt,double lglt,double mu,double sigma);
+// The interval mass preserves both boundaries when a complementary tail
+// rounds to zero. Envelope samplers should use this overload.
+double rnorm_ct(double lgrt, double lglt, double mu, double sigma, double log_mass);
 
 double rinvgamma_ct(double shape,double rate,double disp_upper,double disp_lower);
 
