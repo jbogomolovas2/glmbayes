@@ -1,8 +1,8 @@
 # Subsequent upstream changes (outside this review binary)
 
-Compared base `7959a42d32f822a4b65ddfaf94927190ad5db536` to observed upstream HEAD `dc2d905d2244350c76068609abe031bb01421132`. GitHub API reports ahead_by=8, behind_by=0, merge base equal to the recorded base. Local repository is shallow; raw local reachability counts include imported older history and are not the comparison commit count. Net snapshot diff: 39 files, 2,058 insertions, 1,123 deletions.
+Upstream moved from the reviewed base `7959a42…` to `dc2d905…` by September 28, 2026: eight commits affecting 39 files. These changes overlap parts of the contribution, especially summaries, prior setup and envelope code, and will need to be reconciled during integration. They were not included in the measured build.
 
-These are revision metadata, not contribution source links. No rebasing or integration was performed.
+Full revision identifiers and comparison metadata are in [upstream-compare.json](upstream-compare.json).
 
 | Commit | Subject |
 |---|---|

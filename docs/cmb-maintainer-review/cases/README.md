@@ -1,8 +1,6 @@
 # Synthetic CMB data and fitted model specifications
 
-These are the six public CMB datasets used in the controlled comparisons. The CSVs were extracted from the saved inputs and checked against both the pinned data generator and every saved comparison/reference input. They contain no private study observations. Counts and denominators are exact; covariates are written with 17 significant digits. The unchanged RDS files preserve the full binary-precision inputs.
-
-Each dataset has 60 independent observations, 10 trials per observation, and a covariate `v` equally spaced from -1 to 1. `successes` is the integer response. The generator resets R's seed to 719 for each case; the CSVs preserve the exact realized data even if another R environment generates different random samples.
+The six CSVs below contain the data used in the CMB comparisons. Each has 60 observations, 10 trials per observation, and `v` equally spaced from -1 to 1; `successes` is the integer response. The generator uses seed 719. Inputs were checked against the saved fits and references; the `.rds` files retain full precision.
 
 ## Fitted models
 
@@ -33,11 +31,11 @@ This dataset has **48 zeros among 60 observations**, 18 total successes, and obs
 
 The paired runs use the same inputs and prior, the same mode optimization and standardization, `Gridtype=2`, `n_envopt=1000`, sorted envelopes, serial CPU execution, and no OpenCL. They request 20,000 accepted draws, with one warm-up (seed 9100) and three measured runs (seeds 9101, 9102, 9103) per setting. Only the generated builder's refinement flag changes; `refine_maxit=60`, the other numerical safeguards, the 200,000-proposal-per-draw cap, and the 300-second process timeout are retained. Both settings produce an 81-cell grid.
 
-The [validation harness](../compare.R) calls the consistent generated builder and serial sampler directly. This is necessary to toggle refinement without modifying the reviewed package; the ordinary fitting interface does not expose that control, and the handwritten public envelope wrapper has the documented argument-count defect.
+The [comparison script](../compare.R) uses the generated builder to toggle refinement, because the public fitting interface does not expose that control.
 
 With refinement, all three measured runs finish (median total 0.594 seconds). Without it, all three hit the proposal cap before accepting their first draw. [Paired results](../results/summary.md) and the saved [enabled envelope/input](../results/zero_heavy-1-1-envelope.rds), [disabled envelope/input](../results/zero_heavy-0-1-envelope.rds), and [enabled draws](../results/zero_heavy-1-1.rds) permit inspection of the original inputs, standardized matrices, tangencies, and posterior draws using `readRDS()`.
 
-This comparison establishes practical necessity under these settings, not the mechanism behind the difficulty. It does not isolate non-normality from correlation or prove a general diagnostic for when refinement is needed. The original predictor is centered, but that alone does not imply independent standardized posterior coordinates. Diagnosing those mechanisms and an automatic refinement trigger would require separate analysis.
+The comparison shows where refinement is needed under these settings. It does not yet establish whether non-normality or correlation causes the difficulty, or how to detect such cases automatically.
 
 ## Other comparison inputs
 

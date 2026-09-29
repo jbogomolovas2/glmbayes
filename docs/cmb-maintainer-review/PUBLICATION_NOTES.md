@@ -1,33 +1,15 @@
 # Publication notes
 
-This documentation-only branch publishes the review prepared on September 28, 2026, for contribution `b971596511c90f33de290497b2c7e8feb1a4e580` against base `7959a42d32f822a4b65ddfaf94927190ad5db536`. The contribution remains the measured code revision. Later upstream changes are recorded separately and were not integrated.
+The review concerns contribution `b971596511c90f33de290497b2c7e8feb1a4e580`, based on `7959a42d32f822a4b65ddfaf94927190ad5db536`. The saved measurements were made on September 28, 2026. This branch adds documentation and evidence only.
 
-## Public contents
+## Saved evidence
 
-The original delivery checksum manifest supplied the explicit file allowlist. The public copy retains the review, inventories, exact source diff, reproduction scripts, environment metadata, tables, logs, numerical integration references, posterior draws and envelopes. The unsent GitHub reply draft is excluded. A landing page, these publication notes, and six CSV inputs with explicit model specifications are added. The integer responses and trial counts are exact extracts; covariates are exported with 17 significant digits (base R CSV parsing differs by at most one machine epsilon). Full binary-precision inputs remain in the unchanged RDS files. The generating inputs were verified against the pinned generator and all 48 CMB comparison inputs and six references, addressing the additional dataset/model request in the current issue comment. The duplicate ZIP, build/source copies, installed library, supplied paper, and private/exploratory analysis directories are excluded.
+The results, draws, envelopes, references, source diff and function inventories are preserved from the original review. The six CSV datasets were extracted from the saved inputs and checked against the generator, all 48 CMB comparison inputs and six references. Counts and trial sizes are exact; covariates have 17 significant digits, with full precision retained in the RDS files.
 
-The saved comparisons remain the original 80 runs. No model, sampler setting, timing, count, posterior sample, envelope or integration reference was changed during publication. No new performance claim is based on publication checks. The source diff is byte-for-byte unchanged, including the already-public upstream build paths in the deleted `src/Makevars` file.
+Private study data, the supplied paper, installed libraries, build copies and the unsent reply draft are excluded. Local machine paths and the hostname were removed from public metadata. In `regression.rds`, 19 test source-directory references were redacted; outcomes and timings are unchanged. Already-public upstream paths in `reviewed.diff` are retained.
 
-## Redactions and documentation edits
+## Reproduction scripts
 
-- The local checkout path in the review and revision metadata is replaced by a descriptive placeholder.
-- The host name and local review-library prefix in the environment and installation log are redacted.
-- In `regression.rds`, 19 shared test source environments have their working-directory prefix replaced with `[review-root]/`. Regression outcome and timing tables were checked identical before and after redaction. Test messages, source text and line references are retained.
-- Public links replace references to the excluded reply draft. Statements about the review stage are distinguished from this later publication stage. Checksums were regenerated for this public copy.
+The original fitting and integration scripts are unchanged. Publication adjustments make the runner check dependencies and use a fresh output directory, stop on regression failures, and write the signature inventory beside its script. The verifier checks file hashes, links and saved result totals. [Reproduction instructions](README.md#inspect-or-reproduce)
 
-All saved numeric CSV tables, posterior/envelope/reference RDS files, original source diff and function inventories remain byte-identical to the original delivery. The regression result object is the sole RDS file with a metadata-only redaction.
-
-## Reproduction harness adjustments
-
-The measured fitting and integration scripts (`compare.R`, `references.R`, their Python runners and `validate-results.R`) are unchanged. Publication changes are limited to:
-
-- `reproduction.sh`: resolves the repository from its own location, checks the pinned commit and R dependencies (including `mvtnorm`), archives from the repository root, and creates a new output directory. An existing destination is refused. It checks comparison/reference outcomes after the run; documented capped comparisons remain recorded failures.
-- `regression.R`: retains its saved results and also returns an error when the public suite has failed assertions or error tests.
-- `inventory.R`: writes its R signature inventory beside the script rather than to the former local review-directory path.
-- `verify-package.py`: checks the complete public manifest and relative links, the original result totals, regression totals, and recorded summary statistics. It reads saved evidence without rerunning fits.
-
-The README documents the fresh-clone commands. Syntax, dependency preflight, refusal to overwrite existing output, and integrity/reanalysis checks were performed for publication. The full 80-fit/reference-generation pipeline was not rerun for this documentation publication. The original build/test/comparison logs remain the evidence for the reported experiments.
-
-## Outstanding code work
-
-The wrapper argument-count crash, omitted CMB offsets, count validation and undeclared validation dependency remain documented defects of the reviewed snapshot. Public controls/defaults, upstream integration and contribution structure remain subjects for the maintainer discussion. This publication does not itself open a PR or post an issue comment.
+Publication checks reproduced the reference-check summaries from saved draws; the full sampling experiment was not rerun. Subsequent wording edits shorten the presentation without changing the measurements or package code. [SHA256SUMS](SHA256SUMS) covers the current public files.
