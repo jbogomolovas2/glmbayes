@@ -1,0 +1,53 @@
+Darwin [redacted-hostname] 22.1.0 Darwin Kernel Version 22.1.0: Sun Oct  9 20:15:09 PDT 2022; root:xnu-8792.41.9~2/RELEASE_ARM64_T6000 arm64
+During startup - Warning messages:
+1: Setting LC_CTYPE failed, using "C" 
+2: Setting LC_COLLATE failed, using "C" 
+3: Setting LC_TIME failed, using "C" 
+4: Setting LC_MESSAGES failed, using "C" 
+5: Setting LC_MONETARY failed, using "C" 
+Loading required package: MASS
+R version 4.5.2 (2025-10-31)
+Platform: aarch64-apple-darwin20
+Running under: macOS Ventura 13.0.1
+
+Matrix products: default
+BLAS:   /System/Library/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A/libBLAS.dylib 
+LAPACK: /Library/Frameworks/R.framework/Versions/4.5-arm64/Resources/lib/libRlapack.dylib;  LAPACK version 3.12.1
+
+locale:
+[1] C
+
+time zone: America/Los_Angeles
+tzcode source: internal
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+[1] glmbayes_0.9.76.9001 MASS_7.3-66         
+
+loaded via a namespace (and not attached):
+ [1] compiler_4.5.2     tools_4.5.2        Rcpp_1.1.2         opencltools_0.8.3 
+ [5] bayestestR_0.18.1  insight_1.5.2      rbibutils_2.4.1    Rdpack_2.6.6      
+ [9] RcppParallel_6.2.1 nmathopencl_0.8.3 
+$version
+[1] "0.9.76.9001"
+
+$library
+[1] "[review-root]/library/glmbayes"
+
+$fingerprint
+                     compiled_code                             r_code 
+"207a581b77db619cf5ede7cf1ce7d8f9" "7f7a60d7f0cbb07b8b96eda6845d4e47" 
+
+$R_version
+[1] "R version 4.5.2 (2025-10-31)"
+
+$platform
+[1] "aarch64-apple-darwin20"
+
+[1] "2026-09-28 21:21:46 PDT"
+Apple clang version 14.0.3 (clang-1403.0.22.14.1)
+Target: arm64-apple-darwin22.1.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin

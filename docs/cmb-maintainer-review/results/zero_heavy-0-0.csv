@@ -1,0 +1,2 @@
+"case","refine","repetition","seed","n_target","status","construction_seconds","sampling_seconds","total_seconds","accepted","proposals","acceptance","log_mass","residual","iterations","converged","cells","message"
+"zero_heavy",FALSE,0,9100,20000,"proposal_cap",0.036,1.22,1.278,NA,NA,NA,751130.939885498,NA,NA,NA,81,"glmbayes: the rejection sampler reached 200000 proposals with zero acceptances for draw 1 of 20000. The envelope is too loose for this model, so no draws were returned. No approximate or force-accepted values were produced."

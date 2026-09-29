@@ -1,0 +1,34 @@
+During startup - Warning messages:
+1: Setting LC_CTYPE failed, using "C" 
+2: Setting LC_COLLATE failed, using "C" 
+3: Setting LC_TIME failed, using "C" 
+4: Setting LC_MESSAGES failed, using "C" 
+5: Setting LC_MONETARY failed, using "C" 
+[ERROR] logP1 spread too large: exp(min-max)=0
+  minIndex=80  minLogP1=-71.9108
+  maxIndex=72  maxLogP1=751131
+  spread=-751203
+[DETAIL] Components at minIndex=80
+  logP0=-4.67535e+06
+  NegLL=417.734
+  quad=4.67532e+06
+  lin=375.129
+  logP1=-71.9108
+  cbar[minIndex] = 1163.52 795.109 2002.01 1832.12
+  ||cbar[minIndex]|| = 3057.88
+[DETAIL] Components at maxIndex=72
+  logP0=-3.32942e+06
+  NegLL=315.545
+  quad=4.08058e+06
+  lin=283.135
+  logP1=751131
+  cbar[maxIndex] = 929.868 798.745 1836.44 1812.73
+  ||cbar[maxIndex]|| = 2856.77
+        case refine repetition seed n_target       status construction_seconds
+1 zero_heavy  FALSE          2 9102    20000 proposal_cap                0.036
+  sampling_seconds total_seconds accepted proposals acceptance log_mass
+1            1.222          1.28       NA        NA         NA 751130.9
+  residual iterations converged cells
+1       NA         NA        NA    81
+                                                                                                                                                                                                                          message
+1 glmbayes: the rejection sampler reached 200000 proposals with zero acceptances for draw 1 of 20000. The envelope is too loose for this model, so no draws were returned. No approximate or force-accepted values were produced.

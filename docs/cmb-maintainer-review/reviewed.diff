@@ -1,0 +1,3869 @@
+diff --git a/.Rbuildignore b/.Rbuildignore
+index e433444..a22b082 100644
+--- a/.Rbuildignore
++++ b/.Rbuildignore
+@@ -37,3 +37,10 @@
+ ^legacy_c_code$
+ ^legacy_code$
+ ^inst/DESIGN_RGLM_BLOCKS\.md$
++^output$
++^outputs$
++^work$
++^library$
++^src/Makevars$
++(^|/)\.DS_Store$
++\.bak($|_|[0-9])
+diff --git a/.gitignore b/.gitignore
+index b8bfa81..7d46b2a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -38,3 +38,18 @@ stamp-h1
+ 
+ # Editor / autoconf backup files
+ *~
++*.bak_cmb
++*.bak_cmbr
++*.bak_plinks
++*.bak2
++*.bak3
++
++# Local analyses, release artifacts and editor backups are not contributions.
++/output/
++/outputs/
++/work/
++/library/
++.DS_Store
++*.bak*
++src/Makevars
++src/*.o.tmp
+diff --git a/CMB_CONTRIBUTION.md b/CMB_CONTRIBUTION.md
+new file mode 100644
+index 0000000..c78763e
+--- /dev/null
++++ b/CMB_CONTRIBUTION.md
+@@ -0,0 +1,62 @@
++# Proposed CMB contribution
++
++Upstream: `knygren/glmbayes`, `main` at `7959a42d32f822a4b65ddfaf94927190ad5db536`
++(verified against GitHub on 2026-09-21). Local starting point: CMB v1 at
++`611a88fa960d1617a1c6c2416caabaa0b0fe8920`, package version 0.9.76.9001.
++Prepared for the personal fork of `jbogomolovas2`.
++
++This branch starts directly from upstream. It does not include private
++development commits, raw emu observations, study reports, machine-specific
++build configuration or discarded adaptation experiments. The upstream author,
++package identity and license are retained. The README identifies this as a fork.
++
++## CMB functionality
++
++* A finite-support likelihood with natural predictors theta = X beta and
++  nu = Z gamma; both use identity links, with a joint normal coefficient prior.
++* `cmb()` and `cmb_augment()` for the augmented `rglmb` matrix interface.
++* `cmb_fitted()` integrates the PMF per draw for expected counts/proportions;
++  `cmb_nu()` extracts nu. CMB-aware fitted/residual/summary handling is included.
++* Documentation and a synthetic example with separate predictor designs.
++
++This is a natural-parameter model, not a mean-link CMB model. Nu is unconstrained
++on the real line (finite support gives a normalizable distribution). Random
++effects and generic stats GLM-family compatibility are not provided.
++
++## Shared sampling changes
++
++* Safeguarded Newton tangency refinement with final residual reporting and a
++  bounded-memory fixed-point fallback for larger problems.
++* Log-space mixture weights/selection and stable extreme-tail proposal bounds.
++* Bounded Normal-GLM rejection work; failure returns no partial accepted sample.
++* CPU row-indexed RNG streams controlled by R seeds, including independent
++  Normal-Gamma sampling, unaffected by worker scheduling.
++* Fit diagnostics retained through matrix/formula interfaces and summaries.
++
++These shared changes warrant review separately from the distribution itself.
++There is no automatic grid adaptation, cost controller or new tuning layer.
++
++## Validation
++
++Fresh public-tree validation on 2026-09-21 passed 302 expectations, with zero
++failures or test warnings. Eleven unavailable OpenCL test blocks were skipped.
++This includes direct PMF/derivative/binomial-limit checks and shared regressions.
++All six synthetic cases passed in both CPU modes: 12 fits, 240,000 posterior
++draws, checked against numerical integration references. The synthetic example
++also completed. See `inst/validation/CMB_VALIDATION.md` to reproduce the checks.
++
++CPU validation does not certify OpenCL. Finite tests do not prove correctness
++for every input or practical envelope cost at arbitrary dimension. The capped
++proposal count does not cap time. Exact RNG results are not promised across
++different platforms or numerical-library builds. No broad speed comparison
++with glmmTMB is claimed.
++
++## Suggested review boundaries
++
++1. Shared numerical/sampling changes with their regression tests.
++2. CMB likelihood, augmentation and post-fit methods.
++3. Fit diagnostics and documentation.
++
++The branch is prepared as one reviewable snapshot. These are proposed review
++boundaries, not claims that every subset cherry-picks independently. The
++maintainer's preferred interface and contribution structure should guide PRs.
+diff --git a/DESCRIPTION b/DESCRIPTION
+index 2df5301..2e207b1 100644
+--- a/DESCRIPTION
++++ b/DESCRIPTION
+@@ -1,7 +1,8 @@
+ Package: glmbayes
+ Type: Package
+ Title: Bayesian Generalized Linear Models (IID Samples)
+-Version: 0.9.76
++Version: 0.9.76.9001
++X-CMB-Release: v1
+ Date: 2026-08-06
+ Authors@R: c(
+     person("Kjell", "Nygren", role = c("aut", "cre"),
+diff --git a/NAMESPACE b/NAMESPACE
+index 9940fd6..7e04fe1 100644
+--- a/NAMESPACE
++++ b/NAMESPACE
+@@ -53,6 +53,10 @@ S3method(summary,rGamma_reg)
+ S3method(summary,rglmb)
+ S3method(variable.names,glmb)
+ S3method(vcov,glmb)
++export(cmb)
++export(cmb_augment)
++export(cmb_fitted)
++export(cmb_nu)
+ export(EnvelopeBuild)
+ export(EnvelopeCentering)
+ export(EnvelopeDispersionBuild)
+@@ -138,3 +142,5 @@ importFrom(insight,get_priors)
+ importFrom(insight,model_info)
+ importFrom(utils,head)
+ useDynLib(glmbayes, .registration = TRUE)
++
++S3method(print,glmb_diagnostics)
+diff --git a/R/RcppExports.R b/R/RcppExports.R
+index 0303fe4..50f54e1 100644
+--- a/R/RcppExports.R
++++ b/R/RcppExports.R
+@@ -37,8 +37,8 @@ EnvelopeSize_cpp_export <- function(a, G1, Gridtype, n, n_envopt, use_opencl, ve
+     .Call(`_glmbayes_EnvelopeSize_cpp_export`, a, G1, Gridtype, n, n_envopt, use_opencl, verbose)
+ }
+ 
+-EnvelopeBuild_cpp_export <- function(bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose) {
+-    .Call(`_glmbayes_EnvelopeBuild_cpp_export`, bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose)
++EnvelopeBuild_cpp_export <- function(bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose, refine = TRUE, refine_maxit = 60L) {
++    .Call(`_glmbayes_EnvelopeBuild_cpp_export`, bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose, refine, refine_maxit)
+ }
+ 
+ EnvelopeBuild_Ind_Normal_Gamma_cpp_export <- function(bStar, A, y, x, mu, P, alpha, wt, family = "binomial", link = "logit", Gridtype = 2L, n = 1L, n_envopt = -1L, sortgrid = FALSE, use_opencl = FALSE, verbose = FALSE) {
+diff --git a/R/fit_diagnostics.R b/R/fit_diagnostics.R
+new file mode 100644
+index 0000000..f8e3cb9
+--- /dev/null
++++ b/R/fit_diagnostics.R
+@@ -0,0 +1,84 @@
++# Shared diagnostics for rglmb/rlmb and their formula interfaces.
++.glmb_diagnostics_cache <- new.env(parent=emptyenv())
++.glmb_build_info <- function() {
++  if (!is.null(.glmb_diagnostics_cache$build)) return(.glmb_diagnostics_cache$build)
++  path <- getNamespaceInfo(asNamespace('glmbayes'),'path')
++  dll <- getLoadedDLLs()[['glmbayes']]
++  files <- c(compiled_code=if(is.null(dll))NA_character_ else dll[['path']],
++             r_code=file.path(path,'R','glmbayes.rdb'))
++  hashes <- setNames(rep(NA_character_,length(files)),names(files))
++  ok <- !is.na(files) & file.exists(files)
++  hashes[ok] <- unname(tools::md5sum(files[ok]))
++  info <- list(version=as.character(getNamespaceVersion('glmbayes')),
++               library=path,fingerprint=hashes,R_version=R.version.string,
++               platform=R.version$platform)
++  .glmb_diagnostics_cache$build <- info
++  info
++}
++.glmb_fit_diagnostics <- function(fit,args) {
++  E <- fit$Envelope; envelope <- is.list(E)
++  ref <- if(envelope) E$refinement else NULL
++  convergence <- if(!envelope)'not_applicable' else if(isTRUE(ref$converged))
++    'converged' else if(identical(ref$converged,FALSE))'incomplete' else 'not_reported'
++  n <- if(!is.null(fit$coefficients))nrow(as.matrix(fit$coefficients)) else length(fit$dispersion)
++  counts <- as.numeric(fit$iters)
++  valid_counts <- envelope && length(counts)==n && n>0 &&
++    all(is.finite(counts) & counts>=1 & counts==floor(counts))
++  total <- if(valid_counts)sum(counts) else NA_real_
++  d <- list(status=if(convergence=='incomplete')'refinement_incomplete' else 'completed',
++    method=if(envelope)'envelope_rejection' else 'direct',
++    sampling_mode=if(!envelope)'not_applicable' else if(isTRUE(args$use_parallel))'parallel' else 'serial',
++    requested_parallel=isTRUE(args$use_parallel),requested_opencl=isTRUE(args$use_opencl),
++    draws=n,total_proposals=total,
++    proposals_per_draw=if(valid_counts)total/n else NA_real_,
++    acceptance_rate=if(valid_counts)n/total else NA_real_,
++    max_proposals=if(valid_counts)max(counts) else NA_real_,
++    envelope=list(status=convergence,cells=if(envelope && !is.null(E$PLSD))length(E$PLSD) else NA_integer_,
++      iterations=if(is.null(ref$iterations))NA_integer_ else ref$iterations,
++      residual=if(is.null(ref$residual))NA_real_ else ref$residual),
++    build=.glmb_build_info(),rng_kind=RNGkind())
++  class(d) <- 'glmb_diagnostics'
++  d
++}
++.glmb_run_simulation <- function(expr,args) {
++  fit <- tryCatch(force(expr),error=function(e) {
++    message <- conditionMessage(e)
++    if(!grepl('rejection sampler reached [0-9]+ proposals',message)) stop(e)
++    cap <- as.numeric(sub('.*rejection sampler reached ([0-9]+) proposals.*','\\1',message))
++    advice <- 'Inspect the envelope and predictor scaling before retrying; requesting more draws will not improve acceptance.'
++    d <- structure(list(status='failed',reason='proposal_limit',draws_returned=0L,
++      proposal_limit=cap,total_proposals=NA_real_,
++      sampling_mode=if(isTRUE(args$use_parallel))'parallel' else 'serial',
++      action=advice,build=.glmb_build_info()),class='glmb_diagnostics')
++    stop(structure(list(message=paste(message,advice),call=conditionCall(e),
++                        parent=e,diagnostics=d),
++                   class=c('glmbayes_sampling_error','error','condition')))
++  })
++  fit$diagnostics <- .glmb_fit_diagnostics(fit,args)
++  fit
++}
++
++#' Print sampling diagnostics
++#' @param x A fit's diagnostics object.
++#' @param ... Unused additional arguments.
++#' @return The diagnostics object, invisibly.
++#' @export
++print.glmb_diagnostics <- function(x,...) {
++  if(identical(x$status,'failed')) {
++    cat('Sampling failed: proposal limit reached; no draws returned.\n',x$action,'\n',sep='')
++    return(invisible(x))
++  }
++  if(identical(x$method,'direct')) {
++    cat('Sampling: direct; envelope diagnostics not applicable.\n')
++  } else {
++    cat(sprintf('Sampling: %s; %s draws; %s proposals (%.3f per draw).\n',
++                x$sampling_mode,format(x$draws,trim=TRUE),
++                format(x$total_proposals,trim=TRUE),x$proposals_per_draw))
++    cat(sprintf('Envelope: %s; %s cells; %s passes; residual %s.\n',
++                x$envelope$status,x$envelope$cells,x$envelope$iterations,
++                format(x$envelope$residual,digits=3)))
++    if(identical(x$envelope$status,'incomplete'))
++      cat('Refinement stopped before convergence; this concerns efficiency, not an MCMC convergence test.\n')
++  }
++  invisible(x)
++}
+diff --git a/R/glmb.R b/R/glmb.R
+index 5dfe2a9..604b59f 100644
+--- a/R/glmb.R
++++ b/R/glmb.R
+@@ -461,6 +461,7 @@ glmb<-function (formula, family = binomial,pfamily=dNormal(mu,Sigma,dispersion=1
+     fit=sim$fit,
+     famfunc=famfunc,
+     iters=sim$iters,
++    diagnostics=sim$diagnostics,
+     contrasts=fit$contrasts,	  
+     xlevels=fit$xlevels,
+     pfamily=pfamily,
+diff --git a/R/lmb.R b/R/lmb.R
+index 6435561..6a9bcc8 100644
+--- a/R/lmb.R
++++ b/R/lmb.R
+@@ -525,6 +525,7 @@ lmb <- function (
+     fit = sim$fit,
+     famfunc = famfunc,
+     iters = sim$iters,
++    diagnostics = sim$diagnostics,
+     contrasts = z$contrasts,
+     xlevels = z$xlevels,
+     pfamily = pfamily,
+@@ -805,6 +806,7 @@ print.lmb<-function (x, digits = max(3, getOption("digits") - 3), ...)
+     fit = sim$fit,
+     famfunc = famfunc,
+     iters = sim$iters,
++    diagnostics = sim$diagnostics,
+     contrasts = z$contrasts,
+     xlevels = z$xlevels,
+     pfamily = pfamily,
+diff --git a/R/pfamily.R b/R/pfamily.R
+index 7b21390..111f506 100644
+--- a/R/pfamily.R
++++ b/R/pfamily.R
+@@ -279,9 +279,10 @@ dNormal<-function(mu,Sigma,dispersion=NULL){
+     if(!length(dispersion)>0) stop("dispersion must be >0")
+   }
+     
+-  okfamilies <- c("gaussian","poisson","binomial","quasipoisson","quasibinomial","Gamma")
++  okfamilies <- c("gaussian","poisson","binomial","quasipoisson","quasibinomial","Gamma","cmb")
+ 
+   plinks<-function(family){
++    if(family$family=="cmb") oklinks<-c("identity")
+     if(family$family=="gaussian") oklinks<-c("identity")
+     if(family$family=="poisson"||family$family=="quasipoisson") oklinks<-c("log")		
+     if(family$family=="binomial"||family$family=="quasibinomial") oklinks<-c("logit","probit","cloglog")		
+@@ -666,3 +667,156 @@ dIndependent_Normal_Gamma <- function(mu, Sigma, shape, rate, max_disp_perc = 0.
+ }
+ 
+ 
++#' Conway-Maxwell-binomial family for glmbayes
++#'
++#' A minimal family object for the Conway-Maxwell-binomial distribution in its
++#' natural parametrisation,
++#' \deqn{\log f(y \mid \theta, \nu) = \theta y + \nu t(y) - \kappa(\theta,\nu),}
++#' with \eqn{t(y) = \log \binom{m}{y}} and \eqn{\kappa} the log-sum-exp
++#' normaliser over \eqn{y = 0, \dots, m}.  The log-likelihood is globally
++#' concave in \eqn{(\beta, \nu)} because \eqn{\kappa} is a log-sum-exp of
++#' affine functions.
++#'
++#' \strong{This is not a \code{stats::family} object.}  It deliberately omits
++#' \code{linkinv}, \code{variance}, \code{mu.eta} and \code{dev.resids}.
++#' \code{variance(mu)} presumes the variance is a function of the mean alone,
++#' which CMB denies: \eqn{\mathrm{Var}(Y)} depends on \eqn{\nu} as well.  That
++#' is the property which makes the family able to span under- and
++#' over-dispersion on one axis, so supplying a fake \code{variance} would be
++#' worse than omitting it.
++#'
++#' \strong{Augmented design.}  \eqn{\nu} is carried as an extra ROW of the
++#' design matrix rather than as a coordinate of the parameter vector, because
++#' the sampler rotates the model (\eqn{x \to x L^{-1}}, \eqn{b \to L b}) and
++#' only a linear functional expressed as a row survives that rotation.  Use
++#' \code{cmb_augment()} to build \code{x}, \code{y} and \code{weights}.
++#'
++#' @param link character; only \code{"identity"} is meaningful, since
++#'   \eqn{\theta} is the natural parameter and takes no transformation.
++#' @return A list with class \code{"family"} carrying \code{family} and
++#'   \code{link} only.
++#' @export
++cmb <- function(link = "identity") {
++  link <- match.arg(link, c("identity"))
++  structure(
++    list(family = "cmb",
++         link = link,
++         valideta = function(eta) TRUE,
++         validmu = function(mu) TRUE),
++    class = "family")
++}
++
++#' Build the augmented design for a CMB fit
++#'
++#' CMB carries \eqn{\nu} as an extra row of the design matrix.  This helper
++#' assembles the augmented \code{x}, the proportion response and the weight
++#' vector carrying the trial counts, in the layout \code{rglmb()} expects.
++#'
++#' @param X N x p design matrix for \eqn{\theta}.
++#' @param yc length-N vector of counts.
++#' @param m length-N vector of trial counts (or a scalar, recycled).
++#' @param Z N x q design matrix for \eqn{\nu}; defaults to an intercept.
++#' @return A list with \code{x} (2N x (p+q)), \code{y}, \code{weights} and
++#'   \code{offset}. The final N entries of \code{y} and \code{weights} are
++#'   placeholders for the \eqn{\nu} rows and are never read.
++#' @export
++cmb_augment <- function(X, yc, m, Z = NULL) {
++  X <- as.matrix(X)
++  N <- nrow(X); p <- ncol(X)
++  if (length(m) == 1L) m <- rep(m, N)
++  if (length(yc) != N || length(m) != N)
++    stop("yc and m must have length nrow(X)")
++  if (any(yc < 0 | yc > m)) stop("counts outside [0, m]")
++
++  if (is.null(Z)) Z <- matrix(1, N, 1, dimnames = list(NULL, "nu"))
++  Z <- as.matrix(Z)
++  if (nrow(Z) != N) stop("Z must have nrow(X) rows")
++  q <- ncol(Z)
++
++  cnX <- colnames(X); if (is.null(cnX)) cnX <- paste0("x", seq_len(p))
++  cnZ <- colnames(Z); if (is.null(cnZ)) cnZ <- paste0("nu", seq_len(q))
++
++  ## Stack: theta rows on top, nu rows beneath, block-diagonal so that
++  ## (x %*% b)[1:N] = X beta and (x %*% b)[N + 1:N] = Z gamma.
++  xa <- rbind(cbind(X, matrix(0, N, q)),
++              cbind(matrix(0, N, p), Z))
++  colnames(xa) <- c(cnX, cnZ)
++
++  list(x = xa,
++       y = c(yc / m, rep(0, N)),
++       weights = c(m, rep(1, N)),
++       offset = rep(0, 2L * N))
++}
++
++
++#' Is this a CMB fit?
++#' @keywords internal
++.is_cmb <- function(object) {
++  !is.null(object$family) && identical(object$family$family, "cmb")
++}
++
++#' Number of observations in a CMB fit
++#'
++#' The stacked design carries two rows per observation (theta then nu), so
++#' nrow(x) is 2N.  This returns N.
++#' @keywords internal
++.cmb_nobs <- function(object) nrow(object$x) %/% 2L
++
++#' Trial counts m for a CMB fit
++#'
++#' m rides in the weight slot, exactly as for binomial.  The first N entries
++#' of prior.weights are the trial counts; the rest are nu-row placeholders.
++#' @keywords internal
++.cmb_m <- function(object) {
++  N <- .cmb_nobs(object)
++  round(as.numeric(object$prior.weights)[seq_len(N)])
++}
++
++#' Fitted means for a CMB fit
++#'
++#' E[Y_i] from the same log-sum-exp table the likelihood uses, on the
++#' proportion scale (E[Y_i]/m_i) to match the binomial convention where the
++#' response is a proportion.
++#'
++#' There is no univariate inverse link for CMB: the mean depends on theta and
++#' nu jointly, so this cannot be expressed as family$linkinv(eta).
++#'
++#' @param object a fitted CMB model from \code{rglmb}.
++#' @param scale "proportion" (default) or "count" for E[Y_i].
++#' @return An n_draws x N matrix.
++#' @export
++cmb_fitted <- function(object, scale = c("proportion", "count")) {
++  scale <- match.arg(scale)
++  if (!.is_cmb(object)) stop("cmb_fitted() is for CMB fits only")
++  N <- .cmb_nobs(object)
++  m <- .cmb_m(object)
++  eta <- t(object$x %*% t(object$coefficients))   # n_draws x 2N
++  nd <- nrow(eta)
++  out <- matrix(0, nd, N)
++  tabs <- lapply(sort(unique(m)), function(mm) lchoose(mm, 0:mm))
++  names(tabs) <- as.character(sort(unique(m)))
++  for (k in seq_len(nd)) {
++    th <- eta[k, seq_len(N)]
++    nu <- eta[k, N + seq_len(N)]
++    for (i in seq_len(N)) {
++      mi <- m[i]; j <- 0:mi
++      lw <- th[i] * j + nu[i] * tabs[[as.character(mi)]]
++      w <- exp(lw - max(lw))
++      out[k, i] <- sum(w * j) / sum(w)
++    }
++  }
++  if (scale == "proportion") out <- sweep(out, 2L, m, "/")
++  out
++}
++
++#' Fitted dispersion parameter nu for a CMB fit
++#'
++#' @param object a fitted CMB model from \code{rglmb}.
++#' @return An n_draws x N matrix of nu_i.
++#' @export
++cmb_nu <- function(object) {
++  if (!.is_cmb(object)) stop("cmb_nu() is for CMB fits only")
++  N <- .cmb_nobs(object)
++  eta <- t(object$x %*% t(object$coefficients))
++  eta[, N + seq_len(N), drop = FALSE]
++}
+diff --git a/R/residuals.glmb.R b/R/residuals.glmb.R
+index fa0183a..8487995 100644
+--- a/R/residuals.glmb.R
++++ b/R/residuals.glmb.R
+@@ -60,6 +60,19 @@ residuals.rglmb <- function(object, ysim = NULL, ...) {
+   n   <- nrow(object$coefficients)
+   wts <- object$prior.weights
+   
++  ## CMB deviance residuals are not available.  dev.resids(y, mu, wt) presumes
++  ## the deviance contribution of an observation is a function of its mean
++  ## alone; for CMB it also depends on nu_i, and the saturated model must be
++  ## solved per observation at that nu.  The total deviance IS available
++  ## (famfunc$f4, validated against glm() at nu = 1) -- only the per-
++  ## observation decomposition is missing.
++  if (!is.null(object$family) && identical(object$family$family, "cmb")) {
++    stop("deviance residuals are not implemented for the CMB family. ",
++         "Use cmb_fitted(object) for fitted means, cmb_nu(object) for the ",
++         "fitted dispersion, or deviance() for the total deviance.",
++         call. = FALSE)
++  }
++
+   # 1) build a matrix (n * length(y)) of linear predictors and fitted values
+   lp_mat <- t(object$x %*% t(object$coefficients))
+   fv_mat <- object$family$linkinv(lp_mat)
+diff --git a/R/rglmb.R b/R/rglmb.R
+index 758c653..7b030d9 100644
+--- a/R/rglmb.R
++++ b/R/rglmb.R
+@@ -31,12 +31,23 @@
+ #' \item{famfunc}{Family functions used during estimation process}
+ #' \item{iters}{an \code{n} by \code{1} matrix giving the number of candidates generated before acceptance for each sample.}
+ #' \item{Envelope}{the envelope that was used during sampling}
++#' \item{diagnostics}{Sampling counts, envelope refinement status, and build identity; see \code{\link{print.glmb_diagnostics}}.}
+ #' 
+ #' Objects of class \code{"rglmb"} are normally of class \code{c("rglmb","glmb","glm","lm")},
+ #' meaning they inherit from \code{glmb}, \code{glm}, and \code{lm}. This allows methods defined
+ #' for these upstream classes to be applied to \code{"rglmb"} objects when appropriate, while
+ #' supporting extensions for regularized Bayesian GLMs with structured priors.
+ #' 
++#' @section Reproducibility:
++#' CPU envelope sampling with normal and independent Normal-Gamma priors is
++#' controlled by \code{set.seed()}. Each requested draw has its own random stream,
++#' so worker scheduling, thread count, and pilot/calibration work do not change
++#' that stream. Serial and parallel paths use the same stream assignment.
++#' Reproducibility assumes the same package build, inputs, R RNG kind, and
++#' numerical environment. To preserve a draw prefix when changing \code{n},
++#' keep the envelope construction unchanged (including \code{n_envopt}).
++#' These streams differ from versions that used operating-system seeds.
++#'
+ #' @details
+ #' The function \code{rglmb} is a minimalistic engine for Bayesian generalized linear model simulation. 
+ #' It is designed to generate independent draws from the posterior distribution of a GLM, given a design matrix, 
+@@ -244,9 +255,9 @@ rglmb<-function(n=1,y,x,family=gaussian(),pfamily,offset=NULL,
+   )
+   
+   ## Call relevant simulation function (for now without control2 list)
+-  outlist = simfun(n = n, y = y, x = x, prior_list = prior_list,offset = offset, weights = weights, family = family, 
++  outlist = .glmb_run_simulation(simfun(n = n, y = y, x = x, prior_list = prior_list,offset = offset, weights = weights, family = family,
+                    Gridtype=Gridtype,n_envopt = n_envopt,   # pass through
+-                   use_parallel = use_parallel, use_opencl = use_opencl, verbose = verbose)
++                   use_parallel = use_parallel, use_opencl = use_opencl, verbose = verbose), args=simfun_args)
+ 
+   if (pfamily$pfamily == "dIndependent_Normal_Gamma") {
+     if (!is.null(outlist$sim_bounds)) {
+diff --git a/R/rlmb.R b/R/rlmb.R
+index c045e9d..d4c08e8 100644
+--- a/R/rlmb.R
++++ b/R/rlmb.R
+@@ -34,6 +34,7 @@
+ #' \item{famfunc}{Family functions used during estimation process}
+ #' \item{iters}{an \code{n} by \code{1} matrix giving the number of candidates generated before acceptance for each sample.}
+ #' \item{Envelope}{the envelope that was used during sampling}
++#' \item{diagnostics}{Sampling counts, envelope refinement status, and build identity; see \code{\link{print.glmb_diagnostics}}.}
+ #' 
+ #' Objects of class \code{"rlmb"} are normally of class \code{c("rlmb","rglmb","glmb","glm","lm")},
+ #' meaning they inherit from \code{rglmb}, \code{glmb}, \code{glm}, and \code{lm}. Well-designed
+@@ -195,7 +196,7 @@ rlmb <- function(
+   )
+   
+   ## Direct call, same style as original
+-  outlist <- simfun(
++  outlist <- .glmb_run_simulation(simfun(
+     n          = n,
+     y          = y,
+     x          = x,
+@@ -209,7 +210,7 @@ rlmb <- function(
+     use_opencl  = use_opencl,
+     verbose     = verbose,
+     progbar     = progbar
+-  )
++  ), args=simfun_args)
+   
+   if (pfamily$pfamily == "dIndependent_Normal_Gamma") {
+     if (!is.null(outlist$sim_bounds)) {
+diff --git a/R/simfunction.R b/R/simfunction.R
+index a96ee73..f0c38ad 100644
+--- a/R/simfunction.R
++++ b/R/simfunction.R
+@@ -93,7 +93,7 @@
+ #'       \item{\code{call}}{Matched call to \code{rindepNormalGamma_reg()}.}
+ #'       \item{\code{famfunc}}{Processed family functions for Gaussian models (from \code{glmbfamfunc}).}
+ #'       \item{\code{iters}}{Vector with per-draw iteration counts returned by the joint sampler.}
+-#'       \item{\code{Envelope}}{\code{NULL}; envelope diagnostics are not returned by this function.}
++#'       \item{\code{Envelope}}{Envelope used for accept-reject sampling, including available refinement diagnostics.}
+ #'       \item{\code{loglike}}{\code{NULL}; placeholder for log-likelihood values.}
+ #'       \item{\code{weight_out}}{Numeric vector of per-draw weights returned by the C++ routine.}
+ #'       \item{\code{sim_bounds}}{List with \code{low} and \code{upp}, the dispersion bounds used by the shared envelope.}
+@@ -1305,7 +1305,7 @@ rindepNormalGamma_reg<-function(n,y,x,prior_list,offset=NULL,weights=1,family=ga
+     call=call,
+     famfunc=famfunc,
+     iters=iters_out,
+-    Envelope=NULL,
++    Envelope=core_out$Envelope,
+     loglike=NULL,
+     weight_out=weight_out,
+     sim_bounds=list(low=low,upp=upp)
+@@ -1606,8 +1606,9 @@ rNormal_reg<-function(n,y,x,prior_list,offset=NULL,weights=1,family=gaussian(),
+     stop("'family' not recognized")
+   }
+   
+-  okfamilies <- c("gaussian","poisson","binomial","quasipoisson","quasibinomial","Gamma")
++  okfamilies <- c("gaussian","poisson","binomial","quasipoisson","quasibinomial","Gamma","cmb")
+   if(family$family %in% okfamilies){
++    if(family$family=="cmb") oklinks<-c("identity")
+     if(family$family=="gaussian") oklinks<-c("identity")
+     if(family$family=="poisson"||family$family=="quasipoisson") oklinks<-c("log")		
+     if(family$family=="binomial"||family$family=="quasibinomial") oklinks<-c("logit","probit","cloglog")		
+@@ -1715,7 +1716,15 @@ rNormal_reg<-function(n,y,x,prior_list,offset=NULL,weights=1,family=gaussian(),
+ 
+     
+     ## get influence info for original model
+-    outlist$fit=glmb.wfit(x,y,weights,offset=offset2,family=family,Bbar=mu,P,betastar)
++    ## CMB has no IRLS representation: glmb.wfit needs variance(mu), which
++    ## presumes Var(Y) is a function of the mean alone.  For CMB it depends on
++    ## nu too, so there is no univariate working weight to construct.  Post-fit
++    ## methods reading $fit need CMB-specific handling.
++    if (family$family == "cmb") {
++      outlist$fit <- NULL
++    } else {
++      outlist$fit=glmb.wfit(x,y,weights,offset=offset2,family=family,Bbar=mu,P,betastar)
++    }
+     
+     
+   }
+diff --git a/R/simulationpipeline.R b/R/simulationpipeline.R
+index f6228aa..416013f 100644
+--- a/R/simulationpipeline.R
++++ b/R/simulationpipeline.R
+@@ -572,6 +572,178 @@ glmbfamfunc<-function(family, lik_shape = 1){
+ 
+   }
+ 
++  if(family$family == "cmb")
++  {
++    ## Conway-Maxwell-binomial, natural parametrisation, with covariates on
++    ## BOTH linear predictors: theta_i = x_i' beta and nu_i = z_i' gamma.
++    ##
++    ## x is STACKED, 2N rows:
++    ##     [ X  0 ]  rows 1..N     -> theta
++    ##     [ 0  Z ]  rows N+1..2N  -> nu
++    ## The linear predictor is split by ROW, never by coordinate, which is what
++    ## makes it invariant under the rotation glmb_Standardize_Model applies.
++    ## y holds proportions and wt holds trial counts m in rows 1..N; rows
++    ## N+1..2N of y and wt are placeholders and are never read.
++
++    .cmb_N <- function(x) {
++      l1 <- nrow(x)
++      if (l1 %% 2L != 0L)
++        stop("CMB: nrow(x) must be even (2N: N theta rows then N nu rows). ",
++             "Build the design with cmb_augment().")
++      l1 %/% 2L
++    }
++
++    .cmb_tab <- function(m) {
++      um <- sort(unique(as.integer(m)))
++      if (any(um < 1L)) stop("CMB requires m >= 1")
++      if (all(um == 1L))
++        stop("all m = 1: log choose(1, y) is 0 and nu is unidentified")
++      tabs <- lapply(um, function(mm) list(j = 0:mm, t = lchoose(mm, 0:mm)))
++      names(tabs) <- as.character(um)
++      tabs
++    }
++
++    ## Per-observation normaliser and moments of T = (Y, t(Y)).  theta and nu
++    ## are now both vectors of length N.
++    .cmb_mom <- function(theta, nu, m, tabs, moments = TRUE) {
++      N <- length(theta)
++      lZ <- EY <- Et <- VY <- VT <- CYT <- numeric(N)
++      for (i in seq_len(N)) {
++        tb <- tabs[[as.character(m[i])]]
++        lw <- theta[i] * tb$j + nu[i] * tb$t
++        M <- max(lw); e <- exp(lw - M); s <- sum(e)
++        lZ[i] <- M + log(s)
++        if (moments) {
++          w <- e / s
++          ey <- sum(w * tb$j); et <- sum(w * tb$t)
++          dj <- tb$j - ey;     dt <- tb$t - et
++          EY[i] <- ey; Et[i] <- et
++          VY[i] <- sum(w * dj * dj)
++          VT[i] <- sum(w * dt * dt)
++          CYT[i] <- sum(w * dj * dt)
++        }
++      }
++      list(lZ = lZ, EY = EY, Et = Et, VY = VY, VT = VT, CYT = CYT)
++    }
++
++    .cmb_dat <- function(y, wt, N) {
++      m <- round(as.numeric(wt)[seq_len(N)])
++      yc <- round(as.numeric(wt)[seq_len(N)] * as.numeric(y)[seq_len(N)])
++      if (any(yc < 0 | yc > m)) stop("CMB: implied counts outside [0, m]")
++      list(m = m, yc = yc, ty = lchoose(m, yc))
++    }
++
++    .cmb_eta <- function(bcol, x, alpha) {
++      eta <- as.vector(alpha + x %*% bcol)
++      N <- length(eta) %/% 2L
++      list(theta = eta[seq_len(N)], nu = eta[N + seq_len(N)], N = N)
++    }
++
++    ## Saturated log-likelihood: maximise over theta_i at that observation's
++    ## own nu_i.  E[Y] is strictly increasing in theta so a bracket always
++    ## exists; Newton is safeguarded inside it because at nu < 0 the mass sits
++    ## at the endpoints and Var(Y) underflows once theta runs out, which turns
++    ## an unbracketed step into a huge jump.  Endpoint y contribute exactly 0:
++    ## the supremum is attained only as theta -> -+Inf.
++    .cmb_sat <- function(yc, m, nu, tabs, tol = 1e-10, maxit = 200L) {
++      out <- numeric(length(yc))
++      for (i in seq_along(yc)) {
++        if (yc[i] <= 0 || yc[i] >= m[i]) { out[i] <- 0; next }
++        mi <- m[i]; target <- yc[i]; nui <- nu[i]
++        EYf <- function(th) .cmb_mom(th, nui, mi, tabs)$EY
++        lo <- hi <- log(target / (mi - target))
++        st <- 1
++        while (EYf(lo) > target && st < 1e6) { lo <- lo - st; st <- st * 2 }
++        st <- 1
++        while (EYf(hi) < target && st < 1e6) { hi <- hi + st; st <- st * 2 }
++        th <- 0.5 * (lo + hi)
++        for (it in seq_len(maxit)) {
++          mo <- .cmb_mom(th, nui, mi, tabs)
++          g <- mo$EY - target
++          if (abs(g) < tol) break
++          if (g > 0) hi <- th else lo <- th
++          nt <- if (mo$VY > 0) th - g / mo$VY else NA_real_
++          th <- if (is.finite(nt) && nt > lo && nt < hi) nt else 0.5*(lo+hi)
++        }
++        mo <- .cmb_mom(th, nui, mi, tabs, moments = FALSE)
++        out[i] <- th * target + nui * lchoose(mi, target) - mo$lZ
++      }
++      sum(out)
++    }
++
++    f1<-function(b,y,x,alpha=0,wt=1){
++      B <- if (is.matrix(b)) b else matrix(b, ncol = 1L)
++      N <- .cmb_N(x)
++      d <- .cmb_dat(y, wt, N); tabs <- .cmb_tab(d$m)
++      res <- numeric(ncol(B))
++      for (k in seq_len(ncol(B))) {
++        s <- .cmb_eta(B[, k], x, alpha)
++        mo <- .cmb_mom(s$theta, s$nu, d$m, tabs, moments = FALSE)
++        res[k] <- -sum(s$theta * d$yc + s$nu * d$ty - mo$lZ)
++      }
++      if (is.matrix(b) && ncol(B) > 1L) res else res[1L]
++    }
++
++    f2<-function(b,y,x,mu,P,alpha=0,wt=1){
++      B <- if (is.matrix(b)) b else matrix(b, ncol = 1L)
++      mu <- as.vector(mu)
++      nll <- f1(B, y, x, alpha, wt)
++      pen <- apply(B, 2L, function(v) {
++        dv <- v - mu; 0.5 * as.numeric(crossprod(dv, P %*% dv))
++      })
++      out <- nll + pen
++      if (is.matrix(b) && ncol(B) > 1L) out else out[1L]
++    }
++
++    f3<-function(b,y,x,mu,P,alpha=0,wt=1){
++      B <- if (is.matrix(b)) b else matrix(b, ncol = 1L)
++      mu <- as.vector(mu)
++      N <- .cmb_N(x)
++      d <- .cmb_dat(y, wt, N); tabs <- .cmb_tab(d$m)
++      l2 <- nrow(B); m1 <- ncol(B)
++      g <- matrix(0.0, m1, l2)
++      for (k in seq_len(m1)) {
++        s <- .cmb_eta(B[, k], x, alpha)
++        mo <- .cmb_mom(s$theta, s$nu, d$m, tabs)
++        dv <- B[, k] - mu
++        sc <- c(d$yc - mo$EY, d$ty - mo$Et)
++        g[k, ] <- -as.vector(crossprod(x, sc)) + as.vector(P %*% dv)
++      }
++      if (is.matrix(b) && m1 > 1L) g else as.vector(g)
++    }
++
++    f4<-function(b,y,x,alpha=0,wt=1,dispersion=1){
++      wtd <- wt / dispersion
++      N <- .cmb_N(x)
++      d <- .cmb_dat(y, wtd, N); tabs <- .cmb_tab(d$m)
++      bv <- if (is.matrix(b)) b[, 1L] else b
++      s <- .cmb_eta(bv, x, alpha)
++      2 * f1(b, y, x, alpha, wtd) + 2 * .cmb_sat(d$yc, d$m, s$nu, tabs)
++    }
++
++    ## Fisher information X' W X.  W is the covariance of the sufficient
++    ## statistic, now a 2N x 2N matrix of 2x2 blocks: Var(Y_i) on the theta
++    ## diagonal, Var(t(Y_i)) on the nu diagonal, Cov(Y_i, t(Y_i)) coupling row
++    ## i to row N+i.  Likelihood only, no prior term, matching the other
++    ## families' f7.  For scalar nu (Z = 1_N) the nu block collapses to
++    ## sum_i Var(t(Y_i)), recovering the previous formula.
++    f7<-function(b,y,x,mu,P,alpha=0,wt=1){
++      N <- .cmb_N(x); l1 <- nrow(x)
++      d <- .cmb_dat(y, wt, N); tabs <- .cmb_tab(d$m)
++      bv <- if (is.matrix(b)) b[, 1L] else b
++      s <- .cmb_eta(bv, x, alpha)
++      mo <- .cmb_mom(s$theta, s$nu, d$m, tabs)
++      W <- matrix(0.0, l1, l1)
++      ii <- seq_len(N); jj <- N + ii
++      W[cbind(ii, ii)] <- mo$VY
++      W[cbind(jj, jj)] <- mo$VT
++      W[cbind(ii, jj)] <- mo$CYT
++      W[cbind(jj, ii)] <- mo$CYT
++      t(x) %*% W %*% x
++    }
++
++  }
++
+   out=list(f1=f1,f2=f2,f3=f3,f4=f4,
+            #f5=f5,
+            #f6=f6,
+@@ -1717,7 +1889,8 @@ EnvelopeSort <- function(l1, l2,
+                          GIndex, G3, cbars, logU, logrt, loglt,
+                          logP, LLconst, PLSD, a1, E_draws,
+                          lg_prob_factor = NULL,
+-                         UB2min=NULL
++                         UB2min=NULL,
++                         logPLSD = NULL
+                          # ,thetabar_const_base = NULL,
+                          # New_LL_Slope=NULL,
+                          # shape3_face=NULL
+@@ -1757,6 +1930,16 @@ EnvelopeSort <- function(l1, l2,
+       stopifnot(length(UB2min) == l2)
+       UB2min <- UB2min[sel]
+     }
++
++    ## Mixture weights in log space, reordered by the SAME index vector as
++    ## PLSD.  Note the sort key remains PLSD: once several cells underflow to
++    ## zero their relative order among the ties is arbitrary, which sorting on
++    ## logPLSD would fix, but changing the key is a behaviour change and those
++    ## cells carry negligible mass by construction.
++    if (!is.null(logPLSD)) {
++      stopifnot(length(logPLSD) == l2)
++      logPLSD <- logPLSD[sel]
++    }
+   }, error = function(e) {
+     msg <- conditionMessage(e)
+     if (grepl("cannot allocate", msg, ignore.case = TRUE) ||
+@@ -1812,6 +1995,9 @@ EnvelopeSort <- function(l1, l2,
+   if (!is.null(UB2min)) {
+     outlist$UB2min <- UB2min
+   }
++  if (!is.null(logPLSD)) {
++    outlist$logPLSD <- logPLSD
++  }
+   outlist$sort_ok <- sort_ok
+ 
+   ## Adding to enable face specific dispersion bounds
+diff --git a/R/summary.glmb.R b/R/summary.glmb.R
+index 05eaa5e..541d3b7 100644
+--- a/R/summary.glmb.R
++++ b/R/summary.glmb.R
+@@ -219,6 +219,7 @@ summary.glmb<-function(object,...){
+   rownames(TAB2)<-rownames(TAB)
+   
+   res<-list(
++    diagnostics=object$diagnostics,
+     call=object$call,
+     n=n,
+     residuals=mres,
+@@ -301,6 +302,7 @@ print.summary.glmb<-function(x,digits = max(3, getOption("digits") - 3),...){
+   cat("DIC:",x$DIC,"\n\n")
+   cat("Expected Mean dispersion:",x$dispersion,"\n")
+   cat("Sq.root of Expected Mean dispersion:",sqrt(x$dispersion),"\n\n")
++  if(!is.null(x$diagnostics)) print(x$diagnostics) else
+   cat("Mean Likelihood Subgradient Candidates Per iid sample:",x$iters,"\n\n")
+   
+   
+diff --git a/R/summary.rglmb.R b/R/summary.rglmb.R
+index 4f9f67b..bf8ad92 100644
+--- a/R/summary.rglmb.R
++++ b/R/summary.rglmb.R
+@@ -86,8 +86,15 @@ summary.rglmb<-function(object,...){
+     
+   }
+     
+-  linkinv<-object$family$linkinv
+-  fitted.values<-linkinv(linear.predictors)
++  ## CMB has no univariate inverse link: E[Y] depends on theta and nu jointly
++  ## and needs m, which is not recoverable from the linear predictor.  Compute
++  ## the fitted means directly instead.
++  if (!is.null(object$family) && identical(object$family$family, "cmb")) {
++    fitted.values <- cmb_fitted(object)
++  } else {
++    linkinv<-object$family$linkinv
++    fitted.values<-linkinv(linear.predictors)
++  }
+ 
+ 
+   ##################################################
+@@ -121,9 +128,24 @@ summary.rglmb<-function(object,...){
+   }
+ 
+   ## Add call to glm to recover the mle information
+-  glm_mle=glm(y~x-1,family=object$family,weights=wtin)
+-  ml<-coef(glm_mle) 
+-  se1<-sqrt(diag(vcov(glm_mle)))
++  ##
++  ## CMB has no stats::family apparatus (no variance/mu.eta/dev.resids), so
++  ## glm.fit cannot run.  That is deliberate: variance(mu) presumes the
++  ## variance is a function of the mean alone, which is exactly what CMB
++  ## denies.  Supplying a stub would make glm() converge to a number that
++  ## would then be printed in the "Max Like." column as if it meant something.
++  ## Report NA instead; every posterior quantity below is unaffected.
++  is_cmb <- !is.null(object$family) && identical(object$family$family, "cmb")
++
++  if (is_cmb) {
++    glm_mle <- NULL
++    ml  <- rep(NA_real_, ncol(object$coefficients))
++    se1 <- rep(NA_real_, ncol(object$coefficients))
++  } else {
++    glm_mle=glm(y~x-1,family=object$family,weights=wtin)
++    ml<-coef(glm_mle)
++    se1<-sqrt(diag(vcov(glm_mle)))
++  }
+     
+ 
+   R <- chol(object$Prior$Precision)
+@@ -171,13 +193,14 @@ summary.rglmb<-function(object,...){
+   rownames(TAB2) <- coef_names
+ 
+   res<-list(
++    diagnostics=object$diagnostics,
+     coefficients=object$coefficients,
+     coef.means=colMeans(object$coefficients),
+     coef.mode=object$mode,
+     dispersion=mean(object$dispersion),
+     Prior=object$Prior,
+     fitted.values=fitted.values,
+-    family=family(glm_mle),
++    family=if (is_cmb) object$family else family(glm_mle),
+     linear.predictors=linear.predictors,
+     deviance=DICinfo$Deviance,
+     pD=DICinfo$pD,
+@@ -187,7 +210,7 @@ summary.rglmb<-function(object,...){
+     prior.weights=object$prior.weights,
+     y=object$y,
+     x=object$x,
+-    model=model.frame(glm_mle),
++    model=if (is_cmb) NULL else model.frame(glm_mle),
+     call = object$call,
+     formula=object$formula,
+     data=object$data,
+@@ -236,8 +259,8 @@ print.summary.rglmb<-function(x,digits = max(3, getOption("digits") - 3),...){
+   cat("DIC:",x$DIC,"\n\n")
+   cat("Expected Mean dispersion:",x$dispersion,"\n")
+   cat("Sq.root of Expected Mean dispersion:",sqrt(x$dispersion),"\n\n")
++  if(!is.null(x$diagnostics)) print(x$diagnostics) else
+   cat("Mean Likelihood Subgradient Candidates Per iid sample:",mean(x$iters),"\n\n")
+ 
+ }
+ 
+-
+diff --git a/README.md b/README.md
+index 3bba9f7..e19dae8 100644
+--- a/README.md
++++ b/README.md
+@@ -1,10 +1,35 @@
+-# glmbayes
++# glmbayes: CMB contribution fork
++
++This contribution branch adds Conway-Maxwell-binomial (CMB) regression to
++[Kjell Nygren's GLMBayes](https://github.com/knygren/glmbayes). It is based on
++upstream commit `7959a42` and our local CMB v1 checkpoint (`0.9.76.9001`).
++It is not an upstream release. Original authorship, copyright notices and
++the package's declared GPL-2 license are retained.
++
++The CMB model uses natural predictors `theta = X beta` and `nu = Z gamma`.
++Use `cmb_augment()` with `rglmb()` and a normal prior. `cmb_fitted()` computes
++expected counts or proportions from the full probability mass function;
++`plogis(theta)` is generally not the expected proportion. See
++[the synthetic example](inst/examples/Ex_CMB.R) and
++[the contribution overview](CMB_CONTRIBUTION.md).
++
++The contribution also fixes shared CPU envelope refinement, extreme-tail
++proposals and RNG reproducibility, and adds bounded rejection failure handling
++and fit diagnostics. These changes affect supported non-CMB sampling paths too.
++There are no random effects or automatic adaptive-grid controls in this fork.
++OpenCL execution is not certified by the CPU validation.
++
++Public validation uses generated data only. Local scientific analyses, raw
++emu observations, backups and experimental adaptation history are excluded.
++See [validation instructions](inst/validation/CMB_VALIDATION.md).
++
++## Upstream package documentation
+ 
+ ![CRAN status](https://www.r-pkg.org/badges/version/glmbayes)
+ ![CRAN downloads](https://cranlogs.r-pkg.org/badges/grand-total/glmbayes)
+ ![Monthly downloads](https://cranlogs.r-pkg.org/badges/glmbayes)
+ ![GitHub release (latest by date)](https://img.shields.io/github/v/release/knygren/glmbayes?label=version)
+-![License: GPL-3](https://img.shields.io/badge/license-GPL--3-blue.svg)
++![License: GPL-2](https://img.shields.io/badge/license-GPL--2-blue.svg)
+ ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/knygren/glmbayes/R-CMD-check.yaml?label=R%20CMD%20Check)
+ 
+ glmbayes provides independent and identically distributed (iid) samples for Bayesian Generalized Linear Models (GLMs).
+@@ -395,4 +420,4 @@ Further performance and algorithm work:
+ - Grid selection (simulation): Precompute cumulative PLSD and use inverse CDF
+   sampling (e.g. binary search) to select the grid component per candidate
+   instead of scanning PLSD, improving the simulation loop when many candidates
+-  are evaluated.
+\ No newline at end of file
++  are evaluated.
+diff --git a/inst/examples/Ex_CMB.R b/inst/examples/Ex_CMB.R
+new file mode 100644
+index 0000000..cabdb69
+--- /dev/null
++++ b/inst/examples/Ex_CMB.R
+@@ -0,0 +1,25 @@
++# Synthetic example; no study data or local paths required.
++library(glmbayes)
++set.seed(2026)
++clutch <- rep(8L, 30)
++size <- seq(-1, 1, length.out = length(clutch))
++theta <- -0.3 + 0.4 * size
++nu <- 0.8 + 0.2 * size
++hatch <- vapply(seq_along(clutch), function(i) {
++  y <- 0:clutch[i]
++  logw <- theta[i] * y + nu[i] * lchoose(clutch[i], y)
++  sample(y, 1, prob = exp(logw - max(logw)))
++}, numeric(1))
++X <- Z <- cbind(intercept = 1, size = size)
++a <- cmb_augment(X, hatch, clutch, Z = Z)
++p <- ncol(a$x)
++fit <- rglmb(n = 2000L, y = a$y, x = a$x, offset = a$offset,
++             weights = a$weights, family = cmb(),
++             pfamily = dNormal(mu = matrix(0, p, 1), Sigma = 4 * diag(p)),
++             n_envopt = 1000L, use_parallel = TRUE, verbose = FALSE)
++print(fit$diagnostics)
++expected_counts <- cmb_fitted(fit, scale = 'count')
++expected_proportions <- cmb_fitted(fit, scale = 'proportion')
++print(head(data.frame(size = size, observed = hatch,
++                      expected = colMeans(expected_counts),
++                      proportion = colMeans(expected_proportions))))
+diff --git a/inst/validation/CMB_V1.md b/inst/validation/CMB_V1.md
+new file mode 100644
+index 0000000..4816881
+--- /dev/null
++++ b/inst/validation/CMB_V1.md
+@@ -0,0 +1,12 @@
++# CMB v1 scope
++
++This contribution derives from local CMB v1, version 0.9.76.9001, based on
++upstream GLMBayes 0.9.76. It is not an official upstream release.
++
++Retained: natural-parameter CMB regression, mean conversion, bounded rejection,
++safeguarded refinement, extreme-tail correction, reproducible CPU RNG and fit
++diagnostics. CMB uses the documented augmented matrix interface.
++
++Excluded: experimental adaptive splitting, cost controllers, raw study data,
++local analysis outputs and backups. No random-effects functionality was added.
++See `CMB_VALIDATION.md` and the repository's `CMB_CONTRIBUTION.md`.
+diff --git a/inst/validation/CMB_VALIDATION.md b/inst/validation/CMB_VALIDATION.md
+new file mode 100644
+index 0000000..831b28d
+--- /dev/null
++++ b/inst/validation/CMB_VALIDATION.md
+@@ -0,0 +1,37 @@
++# Public CMB validation
++
++Run from the repository root with the installed fork selected by `R_LIBS`:
++
++```sh
++Rscript -e 'library(glmbayes); testthat::test_dir("tests/testthat", reporter="summary")'
++python3 inst/validation/run-cmb-matrix.py /tmp/cmb-validation
++```
++
++Six generated-data cases cover intercepts, theta slopes, nu slopes, strong and
++weak priors, and zero-heavy responses. Fixed seeds, 2--4 coefficients and normal
++prior SDs 0.5--20 are used. Each case fits 20,000 draws in serial and parallel
++mode: 12 fits and 240,000 posterior draws in total. The wrapper applies a
++per-case timeout and exits nonzero on failure.
++
++The reference integrates the posterior using tensor Gauss-Hermite rules at
++two scales, increasing resolution and recentering if needed. References must
++agree within 1e-5 for log mass, means and covariance. If unresolved, two seeded
++Student-t importance integrations are used (32 batches of 32,768 evaluations
++each), requiring effective sample sizes over 100,000 and agreement within six
++combined SE. Reference uncertainty is included in the six-SE posterior and
++proposal-rate comparisons. A failed reference is not a passing sampler test.
++
++These checks share the compiled likelihood with the sampler; they independently
++check integration and sampling, not the likelihood formula. The separate
++`test-cmb-public.R` checks direct finite-support PMF calculations, derivatives,
++the binomial special case and fitted-mean conversion on synthetic inputs.
++
++Shared tests cover bounded failures, stiff refinement, extreme-tail boundaries
++and exact CPU serial/parallel RNG reproducibility. See `RNG_REPRODUCIBILITY.md`.
++The 200,000-proposal cap bounds proposals per Normal-GLM draw, not elapsed time
++or construction. Refinement convergence concerns efficiency, not proof of
++posterior accuracy. OpenCL is not certified by CPU-only tests.
++
++Private emu observations and their data-specific tests/references are excluded
++from this public branch. Historical local test totals therefore differ from
++the public suite. Public results are recorded in `CMB_CONTRIBUTION.md`.
+diff --git a/inst/validation/RNG_REPRODUCIBILITY.md b/inst/validation/RNG_REPRODUCIBILITY.md
+new file mode 100644
+index 0000000..9099de4
+--- /dev/null
++++ b/inst/validation/RNG_REPRODUCIBILITY.md
+@@ -0,0 +1,41 @@
++# CPU envelope RNG reproducibility
++
++Call `set.seed()` before a fit. For the same model, seed, package build, R RNG
++kind, and numerical environment, CPU envelope draws repeat. Normal GLM
++(including CMB) and independent Normal-Gamma samplers use the same stream
++assignment in serial and parallel execution. Worker count and scheduling do
++not determine which stream a draw receives.
++
++The implementation obtains one 64-bit job key from two R uniform draws on the
++main thread, under the calling Rcpp RNG scope. It uses `std::seed_seq` to seed
++an `mt19937_64` engine from that key and the 64-bit output-row index. Engine
++storage is thread-local, but its identity is reset for each output row.
++Mixture selection, truncated proposals, dispersion proposals, and rejection
++uniforms all use that row's stream. No worker accesses R's RNG.
++
++Pilot and calibration passes replay their assigned rows. They do not consume
++additional R uniforms or perturb the final draws. Rejection work for one row
++does not move another row's stream. Uniforms use an explicit 53-bit conversion
++and exclude both endpoints, rather than relying on a library-specific
++`uniform_real_distribution` mapping.
++
++Exactly two uniforms advance R's RNG per low-level sampler invocation. Other
++R operations in a larger analysis may consume their own random numbers.
++Consecutive calls without resetting the seed therefore receive different keys.
++The main thread's R RNG state is the same after serial or parallel execution
++of a given invocation, even when worker timing changes.
++
++Increasing the requested number of draws preserves the existing prefix only
++when the envelope and other numerical inputs remain the same. Pin `n_envopt`
++when making that comparison. The new streams intentionally differ from the
++previous OS-seeded implementation. No promise is made of bitwise equality
++across R/library/compiler/platform changes, or of OpenCL reproducibility.
++Independent stream initialization is not a mathematical proof of non-overlap
++among all possible pseudorandom sequences.
++
++`test-rng-reproducibility.R` checks repeated calls, different seeds, consecutive
++calls, draw prefixes, subsequent R state, Mersenne-Twister and L'Ecuyer-CMRG
++keys, and 1/2/4-thread runs. It tests exact serial/parallel equality for CMB and
++independent Normal-Gamma coefficients, dispersion, and proposal counts.
++Posterior-accuracy and rejection-cap tests are retained separately so exact
++repeatability cannot conceal a consistently wrong sampler.
+diff --git a/inst/validation/cmb-matrix.R b/inst/validation/cmb-matrix.R
+new file mode 100644
+index 0000000..048db49
+--- /dev/null
++++ b/inst/validation/cmb-matrix.R
+@@ -0,0 +1,99 @@
++# Run from repository root: Rscript inst/validation/cmb-matrix.R CASE OUTPUT_DIR
++# Select the installed build with R_LIBS. Each case is run in a separate process.
++suppressPackageStartupMessages(library(glmbayes))
++args <- commandArgs(TRUE); stopifnot(length(args)==2)
++name <- args[1]; out <- args[2]
++stopifnot(name %in% c('intercepts','theta_slope','nu_slope','strong_prior',
++                     'weak_prior','zero_heavy'))
++dir.create(out,recursive=TRUE,showWarnings=FALSE)
++set.seed(719)
++v <- seq(-1,1,length.out=60); one <- matrix(1,60,1)
++X <- cbind(1,v); Z <- X; sdprior <- 5
++m <- rep(10,60); theta <- -.3+.5*v; nu <- 1+.3*v
++if(name=='intercepts') { X<-Z<-one;theta<-rep(-.3,60);nu<-rep(1,60) }
++if(name=='theta_slope') Z<-one
++if(name=='nu_slope') X<-one
++if(name=='strong_prior') sdprior<-.5
++if(name=='weak_prior') sdprior<-20
++if(name=='zero_heavy') {theta<--3+.3*v;nu<-rep(.5,60)}
++y <- vapply(seq_along(m),function(i){j<-0:m[i];w<-theta[i]*j+nu[i]*lchoose(m[i],j);sample(j,1,prob=exp(w-max(w)))},numeric(1))
++a <- cmb_augment(X,y,m,Z=Z);p<-ncol(a$x);mu<-matrix(0,p,1);P<-diag(p)/sdprior^2
++ff<-glmbayes:::glmbfamfunc(cmb())
++o<-optim(rep(0,p),fn=ff$f2,gr=ff$f3,y=a$y,x=a$x,mu=mu,P=P,alpha=a$offset,wt=a$weights,method='BFGS',hessian=TRUE)
++stopifnot(o$convergence==0,min(eigen(o$hessian,symmetric=TRUE)$values)>0)
++s<-glmbayes:::glmb_Standardize_Model_cpp_export(a$y,a$x,P,matrix(o$par,p,1),o$hessian)
++inv<-s$L2Inv%*%s$L3Inv;L0<-t(chol(solve(diag(p)+s$A)));center<-s$bstar2
++lse<-function(v){b<-max(v);b+log(sum(exp(v-b)))}
++quad<-function(nodes,scale){
++ J<-matrix(0,nodes,nodes);J[cbind(1:(nodes-1),2:nodes)]<-sqrt(1:(nodes-1));e<-eigen(J+t(J),symmetric=TRUE)
++ logw<-2*log(abs(e$vectors[1,]));L<-scale*L0;logZ<--Inf;mn<-rep(0,p);cross<-matrix(0,p,p)
++ for(start in seq(0,nodes^p-1,by=5000)){
++  id<-seq.int(start,min(nodes^p-1,start+4999));idx<-sapply(0:(p-1),function(k)(id%/%nodes^k)%%nodes+1L)
++  u<-matrix(e$values[idx],nrow(idx),p);z<-sweep(u%*%t(L),2,center,'+')
++  ev<-glmbayes:::EnvelopeEval_cpp_export(t(z),a$y,s$x2,s$mu2,s$P2,a$offset,a$weights,'cmb','identity',FALSE,FALSE)
++  terms<-rowSums(matrix(logw[idx],nrow(idx),p))-ev$NegLL-.5*rowSums(z^2)+sum(log(diag(L)))+.5*rowSums(u^2)
++  nxt<-lse(c(logZ,lse(terms)));old<-exp(logZ-nxt);w<-exp(terms-nxt);b<-z%*%t(inv)
++  mn<-old*mn+colSums(b*w);cross<-old*cross+crossprod(b,b*w);logZ<-nxt
++ }
++ list(logZ=logZ,mean=mn,cov=cross-tcrossprod(mn),nodes=nodes,scale=scale)
++}
++for(nodes in c(26L,36L,52L)){
++ q<-quad(nodes,1);q2<-quad(nodes,1.5)
++ err<-max(abs(q$logZ-q2$logZ),max(abs(q$mean-q2$mean)),max(abs(q$cov-q2$cov)))
++ cat(name,'quadrature nodes',nodes,'agreement',err,'\n');flush.console()
++ if(err<1e-5) break
++ if(nodes==26L) {
++  # Pilot moments only select a better integration proposal; they are not
++  # accepted as a reference until two independently scaled rules agree.
++  center<-as.vector(solve(inv,q$mean))
++  V<-solve(inv)%*%q$cov%*%t(solve(inv));L0<-t(chol(V))
++ }
++}
++# For strongly non-Gaussian posteriors, check an independently sampled,
++# heavy-tailed integration proposal and retain its uncertainty explicitly.
++importance <- function(seed,pilot) {
++ set.seed(seed); B<-32L; N<-32768L; df<-8
++ centerz<-as.vector(solve(inv,pilot$mean))
++ V<-solve(inv)%*%pilot$cov%*%t(solve(inv)); V<-V*(df-2)/df
++ batches<-lapply(seq_len(B),function(k){
++  z<-mvtnorm::rmvt(N,sigma=V,df=df,delta=centerz,type='shifted')
++  ev<-glmbayes:::EnvelopeEval_cpp_export(t(z),a$y,s$x2,s$mu2,s$P2,a$offset,a$weights,'cmb','identity',FALSE,FALSE)
++  lw<--ev$NegLL-.5*rowSums(z*z)-p/2*log(2*pi)-mvtnorm::dmvt(z,delta=centerz,sigma=V,df=df,log=TRUE)
++  zsum<-lse(lw);w<-exp(lw-zsum);b<-z%*%t(inv);mn<-colSums(b*w);cross<-crossprod(b,b*w)
++  list(logZ=zsum-log(N),mean=mn,cross=cross,cov=cross-tcrossprod(mn),logsum2=lse(2*lw))
++ })
++ logs<-vapply(batches,function(b)b$logZ,numeric(1));logZ<-lse(logs)-log(B)
++ w<-exp(logs-logZ)/B;mn<-Reduce('+',Map(function(b,w)b$mean*w,batches,w));cross<-Reduce('+',Map(function(b,w)b$cross*w,batches,w))
++ list(logZ=logZ,mean=mn,cov=cross-tcrossprod(mn),method='Student-t importance',
++  logZ_se=sd(exp(logs-logZ))/sqrt(B),
++  mean_se=apply(sapply(batches,function(b)b$mean),1,sd)/sqrt(B),
++  cov_se=matrix(apply(sapply(batches,function(b)as.vector(b$cov)),1,sd)/sqrt(B),p,p),
++  ess=exp(2*(logZ+log(B*N))-lse(vapply(batches,function(b)b$logsum2,numeric(1)))))
++}
++if(err>=1e-5) {
++ pilot<-q;q<-importance(381,pilot);q2<-importance(992,pilot)
++ agreement<-max(abs(q$logZ-q2$logZ)/sqrt(q$logZ_se^2+q2$logZ_se^2),
++   abs(q$mean-q2$mean)/sqrt(q$mean_se^2+q2$mean_se^2),
++   abs(q$cov-q2$cov)/sqrt(q$cov_se^2+q2$cov_se^2))
++ cat(name,'independent importance agreement (SE)',agreement,'ESS',q$ess,q2$ess,'\n')
++ stopifnot(agreement<6,min(q$ess,q2$ess)>1e5)
++ err<-NA_real_
++} else {q$logZ_se<-0;q$mean_se<-rep(0,p);q$cov_se<-matrix(0,p,p)}
++saveRDS(list(case=name,a=a,sdprior=sdprior,reference=q,reference_check=q2,reference_error=err),file.path(out,paste0(name,'-reference.rds')))
++
++rows<-list();n<-20000L
++for(parallel in c(FALSE,TRUE)){
++ t0<-proc.time()[3]
++ f<-rglmb(n=n,y=a$y,x=a$x,offset=a$offset,weights=a$weights,family=cmb(),pfamily=dNormal(mu=mu,Sigma=diag(p)*sdprior^2),n_envopt=1000L,use_parallel=parallel,verbose=FALSE)
++ b<-as.matrix(f$coefficients);E<-f$Envelope;S<-cov(b);centered<-sweep(b,2,q$mean,'-');se<-matrix(0,p,p)
++ for(i in 1:p)for(j in 1:p)se[i,j]<-sd(centered[,i]*centered[,j])/sqrt(n)
++ mz<-max(abs(colMeans(b)-q$mean)/sqrt(diag(S)/n+q$mean_se^2));cz<-max(abs(S-q$cov)/sqrt(se^2+q$cov_se^2))
++ lw<-as.vector(E$logP)-as.vector(E$LLconst)+.5*rowSums(E$cbars^2);alpha<-exp(lse(lw)-q$logZ)
++ pz<-abs(mean(f$iters)-alpha)/sqrt(alpha*(alpha-1)/n+(alpha*q$logZ_se)^2)
++ passed<-all(is.finite(b))&&mz<6&&cz<6&&pz<6&&isTRUE(E$refinement$converged)
++ row<-data.frame(case=name,parallel=parallel,p=p,zeros=sum(y==0),prior_sd=sdprior,n=n,cells=length(E$PLSD),passes=E$refinement$iterations,residual=E$refinement$residual,seconds=proc.time()[3]-t0,proposals=mean(f$iters),predicted=alpha,mean_z=mz,cov_z=cz,proposal_z=pz,passed=passed)
++ print(row);flush.console();rows[[length(rows)+1]]<-row
++ write.csv(do.call(rbind,rows),file.path(out,paste0(name,'.csv')),row.names=FALSE)
++ saveRDS(list(row=row,mean=colMeans(b),cov=S,reference=q,envelope=E),file.path(out,paste0(name,'-',parallel,'.rds')))
++}
++stopifnot(all(vapply(rows,function(r)r$passed,logical(1))))
+diff --git a/inst/validation/run-cmb-matrix.py b/inst/validation/run-cmb-matrix.py
+new file mode 100644
+index 0000000..8774c23
+--- /dev/null
++++ b/inst/validation/run-cmb-matrix.py
+@@ -0,0 +1,43 @@
++#!/usr/bin/env python3
++"""Run from repository root, with R_LIBS selecting the build to validate."""
++import argparse
++import csv
++from pathlib import Path
++import subprocess
++
++CASES = ['intercepts', 'theta_slope', 'nu_slope', 'strong_prior', 'weak_prior',
++         'zero_heavy']
++parser = argparse.ArgumentParser(description=__doc__)
++parser.add_argument('output', type=Path)
++parser.add_argument('--timeout', type=float, default=240)
++parser.add_argument('--cases', nargs='+', choices=CASES, default=CASES)
++args = parser.parse_args()
++args.output.mkdir(parents=True, exist_ok=True)
++failed = []
++for case in args.cases:
++    # Stream logs so reference progress is inspectable while a case runs.
++    with (args.output / f'{case}.log').open('w') as log:
++        try:
++            result = subprocess.run(
++                ['Rscript', '--vanilla', 'inst/validation/cmb-matrix.R',
++                 case, str(args.output.resolve())],
++                stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout)
++            if result.returncode:
++                failed.append(case)
++            print(case, 'PASS' if result.returncode == 0 else 'FAIL', flush=True)
++        except subprocess.TimeoutExpired:
++            failed.append(case)
++            log.write(f'\nTIMEOUT after {args.timeout} seconds\n')
++            print(case, 'TIMEOUT', flush=True)
++rows = []
++for case in args.cases:
++    path = args.output / f'{case}.csv'
++    if path.exists() and case not in failed:
++        with path.open() as src:
++            rows.extend(csv.DictReader(src))
++if rows:
++    with (args.output / 'summary.csv').open('w', newline='') as dst:
++        writer = csv.DictWriter(dst, fieldnames=rows[0].keys())
++        writer.writeheader()
++        writer.writerows(rows)
++raise SystemExit(1 if failed else 0)
+diff --git a/man/cmb.Rd b/man/cmb.Rd
+new file mode 100644
+index 0000000..b11b61a
+--- /dev/null
++++ b/man/cmb.Rd
+@@ -0,0 +1,43 @@
++\name{cmb}
++\alias{cmb}
++\alias{cmb_augment}
++\alias{cmb_fitted}
++\alias{cmb_nu}
++\title{Conway-Maxwell-binomial regression helpers}
++\usage{
++cmb(link = "identity")
++cmb_augment(X, yc, m, Z = NULL)
++cmb_fitted(object, scale = c("proportion", "count"))
++cmb_nu(object)
++}
++\arguments{
++\item{link}{The natural-parameter identity link.}
++\item{X}{N by p numeric design matrix for theta.}
++\item{yc}{N integer counts between zero and m.}
++\item{m}{Positive integer trial counts, either length N or a scalar.}
++\item{Z}{N by q numeric design matrix for nu; NULL gives an intercept.}
++\item{object}{A fitted CMB model produced using the augmented design.}
++\item{scale}{Return expected proportions or counts.}
++}
++\description{Construct and summarize CMB models using the normal-prior
++\code{rglmb} interface. Probability is proportional to
++\eqn{\exp(\theta y + \nu\log {m\choose y})} for y from zero to m.}
++\details{Theta and nu are X beta and Z gamma. Nu has an identity link and is
++not constrained positive: finite support permits finite real natural parameters.
++Nu equal to one gives a binomial with probability \code{plogis(theta)}. In
++general that transformation is not the expected proportion; use \code{cmb_fitted}.
++
++The family is a specialized marker, not a complete stats GLM family. Pass the
++outputs of \code{cmb_augment} to \code{rglmb}. The design stacks N theta rows
++above N nu rows. The trailing response/weight values are placeholders. Generic
++GLM methods assuming a scalar mean link may not apply. Random effects are not
++supported.}
++\value{\code{cmb} returns a family marker. \code{cmb_augment} returns x (2N by
++p+q), y, weights and offset. \code{cmb_fitted} and \code{cmb_nu} return matrices
++with one row per posterior draw and one column per original observation.
++Use column means or quantiles to summarize these draws.}
++\examples{
++X <- matrix(1, 4, 1)
++a <- cmb_augment(X, c(0, 1, 3, 4), m = 5)
++dim(a$x)
++}
+diff --git a/man/print.glmb_diagnostics.Rd b/man/print.glmb_diagnostics.Rd
+new file mode 100644
+index 0000000..9f39edc
+--- /dev/null
++++ b/man/print.glmb_diagnostics.Rd
+@@ -0,0 +1,26 @@
++\name{print.glmb_diagnostics}
++\alias{print.glmb_diagnostics}
++\alias{glmbayes_sampling_error}
++\title{Print sampling diagnostics}
++\usage{\method{print}{glmb_diagnostics}(x, ...)}
++\arguments{
++\item{x}{A fit's diagnostics object.}
++\item{...}{Unused additional arguments.}
++}
++\description{Fits returned by \code{rglmb}, \code{rlmb}, and their formula interfaces retain sampling information in \code{fit$diagnostics}. Summaries print this information when present.}
++\details{
++The status is \code{completed} or \code{refinement_incomplete}. Envelope status is \code{converged}, \code{incomplete}, \code{not_reported}, or \code{not_applicable}. Refinement convergence describes tangency optimization, not MCMC convergence or proof of posterior accuracy. A converged envelope can still have poor acceptance.
++
++Proposal totals, proposals per draw, maximum proposals for a draw, and acceptance rate are calculated from the returned iteration counts. They exclude setup, pilot, and calibration work. Missing or invalid counts are \code{NA}; direct sampling has no envelope acceptance rate. Envelope cell count, refinement passes, and final residual are retained when reported by the backend.
++
++Requested parallel and OpenCL flags record the request, not proof that a GPU was used. Build information includes package version, loaded library path, R version, platform, and MD5 fingerprints of the loaded compiled library and installed R database. Fingerprints identify build files and are not security guarantees. The R RNG kind is recorded without advancing its state.
++
++A rejection proposal limit raises a \code{glmbayes_sampling_error} condition with a \code{diagnostics} field containing the limit, failure reason, and suggested action. No partial draws are returned. Other errors retain their original classes. This condition does not bound elapsed execution time.
++}
++\value{The diagnostics object, invisibly.}
++\examples{
++\dontrun{
++print(fit$diagnostics)
++tryCatch(rglmb(...), glmbayes_sampling_error = function(e) e$diagnostics)
++}
++}
+diff --git a/man/rglmb.Rd b/man/rglmb.Rd
+index 1499e43..3823939 100644
+--- a/man/rglmb.Rd
++++ b/man/rglmb.Rd
+@@ -87,6 +87,7 @@ list may vary based on the type of prior}
+ \item{famfunc}{Family functions used during estimation process}
+ \item{iters}{an \code{n} by \code{1} matrix giving the number of candidates generated before acceptance for each sample.}
+ \item{Envelope}{the envelope that was used during sampling}
++\item{diagnostics}{Sampling counts, envelope refinement status, and build identity; see \code{\link{print.glmb_diagnostics}}.}
+ 
+ Objects of class \code{"rglmb"} are normally of class \code{c("rglmb","glmb","glm","lm")},
+ meaning they inherit from \code{glmb}, \code{glm}, and \code{lm}. This allows methods defined
+@@ -138,6 +139,17 @@ support formula-based modeling or method dispatch. Instead, it is called interna
+ and may be useful for Gibbs sampling implementations or other workflows where full model
+ reconstruction is unnecessary.
+ }
++\section{Reproducibility}{
++CPU envelope sampling with normal and independent Normal-Gamma priors is
++controlled by \code{set.seed()}. Each requested draw has its own random stream,
++so worker scheduling, thread count, and pilot/calibration work do not change
++that stream. Serial and parallel paths use the same stream assignment.
++Reproducibility assumes the same package build, inputs, R RNG kind, and
++numerical environment. To preserve a draw prefix when changing \code{n},
++keep the envelope construction unchanged (including \code{n_envopt}).
++These streams differ from versions that used operating-system seeds.
++}
++
+ \examples{
+ set.seed(333)
+ ## Dobson (1990) Page 93: Randomized Controlled Trial :
+diff --git a/man/rlmb.Rd b/man/rlmb.Rd
+index 1f4724f..c272f76 100644
+--- a/man/rlmb.Rd
++++ b/man/rlmb.Rd
+@@ -83,6 +83,7 @@ list may vary based on the type of prior}
+ \item{famfunc}{Family functions used during estimation process}
+ \item{iters}{an \code{n} by \code{1} matrix giving the number of candidates generated before acceptance for each sample.}
+ \item{Envelope}{the envelope that was used during sampling}
++\item{diagnostics}{Sampling counts, envelope refinement status, and build identity; see \code{\link{print.glmb_diagnostics}}.}
+ 
+ Objects of class \code{"rlmb"} are normally of class \code{c("rlmb","rglmb","glmb","glm","lm")},
+ meaning they inherit from \code{rglmb}, \code{glmb}, \code{glm}, and \code{lm}. Well-designed
+diff --git a/man/simfuncs.Rd b/man/simfuncs.Rd
+index cb9b4aa..d3a1fe3 100644
+--- a/man/simfuncs.Rd
++++ b/man/simfuncs.Rd
+@@ -147,7 +147,7 @@ Elements include:
+ \item{\code{call}}{Matched call to \code{rindepNormalGamma_reg()}.}
+ \item{\code{famfunc}}{Processed family functions for Gaussian models (from \code{glmbfamfunc}).}
+ \item{\code{iters}}{Vector with per-draw iteration counts returned by the joint sampler.}
+-\item{\code{Envelope}}{\code{NULL}; envelope diagnostics are not returned by this function.}
++\item{\code{Envelope}}{Envelope used for accept-reject sampling, including available refinement diagnostics.}
+ \item{\code{loglike}}{\code{NULL}; placeholder for log-likelihood values.}
+ \item{\code{weight_out}}{Numeric vector of per-draw weights returned by the C++ routine.}
+ \item{\code{sim_bounds}}{List with \code{low} and \code{upp}, the dispersion bounds used by the shared envelope.}
+diff --git a/src/EnvelopeBuild.cpp b/src/EnvelopeBuild.cpp
+index 352c143..5d76b43 100644
+--- a/src/EnvelopeBuild.cpp
++++ b/src/EnvelopeBuild.cpp
+@@ -10,6 +10,7 @@
+ 
+ #include "famfuncs.h"
+ #include "Envelopefuncs.h"
++#include "envelope_refine.h"
+ #include <RcppParallel.h>
+ #include "openclPort.h"
+ #include "progress_utils.h"
+@@ -134,7 +135,9 @@ List EnvelopeBuild(NumericVector bStar,
+                        int n_envopt,
+                        bool sortgrid,
+                        bool use_opencl ,        // Enables OpenCL acceleration during envelope construction
+-                       bool verbose             // Enables diagnostic output
++                       bool verbose,            // Enables diagnostic output
++                       bool refine,             // Refine tangency points before evaluating
++                       int refine_maxit         // Ceiling on refinement passes
+                        
+ ){
+   
+@@ -258,6 +261,37 @@ List EnvelopeBuild(NumericVector bStar,
+   arma::mat G4b(G4.begin(), G4.nrow(), G4.ncol(), false);
+   
+   G4b=trans(G3b);
++
++  // --- optional refinement of the tangency points -------------------------
++  // Nygren & Nygren (2006) give the optimality condition for a restricted
++  // likelihood-subgradient density: the tangency equals the expectation under
++  // that restricted density.  The z* +/- omega positions above are a
++  // closed-form normal-calibrated approximation to it -- excellent when the
++  // posterior is close to Gaussian, and capable of being catastrophically
++  // misplaced when it is not.  Run a short damped fixed point from those
++  // positions toward the stated condition.
++  //
++  // Validity does not depend on this: any tangent to a concave log-likelihood
++  // is a valid upper envelope, so refinement changes the rejection constant
++  // and nothing else.  Cells whose refinement fails keep their original
++  // tangency.
++  double refine_dlogW = 0.0, refine_resid = R_NaReal;
++  int refine_iters = 0;
++  Rcpp::List refinement;
++  if (refine) {
++    refine_iters = glmbayes::env::refine_tangency(
++        G4, GIndex, Lint, y, x, mu, P, alpha, wt,
++        family, link, use_opencl, verbose,
++        refine_maxit, /*rho0*/ 1.0, /*tol*/ 1e-6, /*min_gain*/ 0.0,
++        &refine_dlogW, &refine_resid, true, &refinement);
++    refinement["cell_grid_index"] = Rcpp::clone(GIndex);
++
++    // Keep G3 consistent with the refined G4.  Set_LogP.cpp forms the linear
++    // term of the cell weight from G3, and the Envelope reports G3 as
++    // thetabars, so leaving G3 stale would pair original tangencies with new
++    // gradients.
++    G3b = trans(G4b);
++  }
+   
+   // Allocate containers for evaluation results (cbars, NegLL, logP, etc.)
+   
+@@ -367,15 +401,43 @@ List EnvelopeBuild(NumericVector bStar,
+   double sumP=sum(PLSD);
+   
+   PLSD=PLSD/sumP;
++
++  // The same normalized weights in LOG space.  exp() underflows to exactly
++  // zero below about -745, so an envelope whose cell log-weights span more
++  // than that loses its smallest cells in the PLSD representation while the
++  // log values remain perfectly finite.  Carrying both costs one vector and
++  // changes nothing: PLSD above is untouched and is still what the samplers
++  // use.  This commit only makes the log form available.
++  NumericVector logPLSD(logP2.size());
++  {
++    double lse = R_NegInf;
++    for (int i = 0; i < logP2.size(); ++i) {
++      double v = logP2[i];
++      if (v == R_NegInf) continue;
++      if (lse == R_NegInf) { lse = v; continue; }
++      double M = (v > lse) ? v : lse;
++      double mn = (v > lse) ? lse : v;
++      lse = M + std::log1p(std::exp(mn - M));
++    }
++    for (int i = 0; i < logP2.size(); ++i) logPLSD[i] = logP2[i] - lse;
++  }
+   
+   
+   bool bad = false;
+   
++  // A normalized weight of exactly zero is a failure only if the LOG weight is
++  // also unusable.  exp() underflowing on a cell whose log weight is finite is
++  // a representation limit, not a defect: such a cell carries negligible mass
++  // and the sampler selects from the log weights instead.  NaN and +Inf remain
++  // hard errors.  -Inf is a legitimate zero-mass cell.
+   for (int i = 0; i < PLSD.size(); ++i) {
+     double v = PLSD[i];
+-    if (!R_finite(v) || v <= 0.0) {
++    double lv = logPLSD[i];
++    if (v == 0.0 && R_finite(lv)) continue;      // representation underflow
++    if (!R_finite(v) || v < 0.0 || ISNAN(lv) || lv == R_PosInf) {
+       Rcout << "[ERROR] Invalid PLSD at index " << i
+             << "  value=" << v
++            << "  logPLSD=" << lv
+             << "  logP2=" << logP2[i]
+             << "  maxlogP=" << maxlogP
+             << "\n";
+@@ -440,7 +502,8 @@ List EnvelopeBuild(NumericVector bStar,
+     //               << "\n";
+     // }
+ 
+-    Rcpp::List outlist = EnvSort(l1, l2, GIndex, G3, cbars, logU, logrt, loglt, logP, LLconst, PLSD, a_1, E_draws);
++    Rcpp::List outlist = EnvSort(l1, l2, GIndex, G3, cbars, logU, logrt, loglt, logP, LLconst, PLSD, a_1, E_draws,
++                                 R_NilValue, R_NilValue, logPLSD);
+ 
+     if (outlist.containsElementNamed("sort_ok") && !Rcpp::as<bool>(outlist["sort_ok"])) {
+       if (verbose) {
+@@ -456,7 +519,9 @@ List EnvelopeBuild(NumericVector bStar,
+         Rcpp::Named("LLconst")  = LLconst,
+         Rcpp::Named("logP")     = logP(_, 0),
+         Rcpp::Named("PLSD")     = PLSD,
++        Rcpp::Named("logPLSD")  = logPLSD,
+         Rcpp::Named("a1")       = a_1,
++        Rcpp::Named("refinement") = refinement,
+         Rcpp::Named("E_draws")  = E_draws
+       );
+     }
+@@ -465,6 +530,7 @@ List EnvelopeBuild(NumericVector bStar,
+                   << glmbayes::progress::timestamp_cpp()
+                   << "\n";
+     }
++    outlist["refinement"] = refinement;
+     return(outlist);
+     
+   }
+@@ -481,7 +547,9 @@ List EnvelopeBuild(NumericVector bStar,
+                             Rcpp::Named("LLconst")=LLconst,
+                             Rcpp::Named("logP")=logP(_,0),
+                             Rcpp::Named("PLSD")=PLSD,
++                            Rcpp::Named("logPLSD")=logPLSD,
+                             Rcpp::Named("a1")=a_1,
++                            Rcpp::Named("refinement")=refinement,
+                             Rcpp::Named("E_draws")=E_draws
+   );
+   
+diff --git a/src/EnvelopeEval.cpp b/src/EnvelopeEval.cpp
+index 8be56db..9956e0c 100644
+--- a/src/EnvelopeEval.cpp
++++ b/src/EnvelopeEval.cpp
+@@ -421,6 +421,13 @@ Rcpp::List f2_f3_non_opencl(
+     
+   }
+   
++  else if (family == "cmb") {
++    f2_f3_list = f2_f3_cmb(b, y, x, mu, P, alpha, wt, progbar);
++
++    NegLL  = Rcpp::as<Rcpp::NumericVector>(f2_f3_list["qf"]);
++    cbars2 = Rcpp::as<arma::mat>(f2_f3_list["grad"]);
++  }
++
+   else {
+     Rcpp::stop("Unsupported family/link combination in f2_f3_non_opencl: " +
+       family + "/" + link);
+diff --git a/src/Envelopefuncs.h b/src/Envelopefuncs.h
+index 7aa9c2b..3453531 100644
+--- a/src/Envelopefuncs.h
++++ b/src/Envelopefuncs.h
+@@ -78,7 +78,9 @@ List EnvelopeBuild(NumericVector bStar,
+                        int n_envopt       = -1,   // NEW: effective sample size for EnvelopeOpt (defaults to n if -1)
+                        bool sortgrid      = false,
+                        bool use_opencl    = false, // Enables OpenCL acceleration during envelope construction
+-                       bool verbose       = false  // Enables diagnostic output
++                       bool verbose       = false, // Enables diagnostic output
++                       bool refine        = true,  // Refine tangencies before evaluating
++                       int  refine_maxit  = 60     // Ceiling on refinement passes
+ );
+ 
+ 
+diff --git a/src/Makevars b/src/Makevars
+deleted file mode 100644
+index 62c27c1..0000000
+--- a/src/Makevars
++++ /dev/null
+@@ -1,2 +0,0 @@
+-PKG_CXXFLAGS =  -I/usr/include -I/home/knygren/R/x86_64-pc-linux-gnu-library/4.5/RcppParallel/include
+-PKG_LIBS =  -llapack -lblas -lgfortran -lm -lquadmath -L/usr/lib/x86_64-linux-gnu -lOpenCL -llapack -lblas -lgfortran -lm -lquadmath -L/home/knygren/R/x86_64-pc-linux-gnu-library/4.5/RcppParallel/lib -ltbb -ltbbmalloc -Wl,-rpath,/home/knygren/R/x86_64-pc-linux-gnu-library/4.5/RcppParallel/lib
+diff --git a/src/RcppExports.cpp b/src/RcppExports.cpp
+index 8df535c..90d1026 100644
+--- a/src/RcppExports.cpp
++++ b/src/RcppExports.cpp
+@@ -227,8 +227,8 @@ BEGIN_RCPP
+ END_RCPP
+ }
+ // EnvelopeBuild_cpp_export
+-Rcpp::List EnvelopeBuild_cpp_export(Rcpp::NumericVector bStar, Rcpp::NumericMatrix A, Rcpp::NumericVector y, Rcpp::NumericMatrix x, Rcpp::NumericMatrix mu, Rcpp::NumericMatrix P, Rcpp::NumericVector alpha, Rcpp::NumericVector wt, std::string family, std::string link, int Gridtype, int n, int n_envopt, bool sortgrid, bool use_opencl, bool verbose);
+-RcppExport SEXP _glmbayes_EnvelopeBuild_cpp_export(SEXP bStarSEXP, SEXP ASEXP, SEXP ySEXP, SEXP xSEXP, SEXP muSEXP, SEXP PSEXP, SEXP alphaSEXP, SEXP wtSEXP, SEXP familySEXP, SEXP linkSEXP, SEXP GridtypeSEXP, SEXP nSEXP, SEXP n_envoptSEXP, SEXP sortgridSEXP, SEXP use_openclSEXP, SEXP verboseSEXP) {
++Rcpp::List EnvelopeBuild_cpp_export(Rcpp::NumericVector bStar, Rcpp::NumericMatrix A, Rcpp::NumericVector y, Rcpp::NumericMatrix x, Rcpp::NumericMatrix mu, Rcpp::NumericMatrix P, Rcpp::NumericVector alpha, Rcpp::NumericVector wt, std::string family, std::string link, int Gridtype, int n, int n_envopt, bool sortgrid, bool use_opencl, bool verbose, bool refine, int refine_maxit);
++RcppExport SEXP _glmbayes_EnvelopeBuild_cpp_export(SEXP bStarSEXP, SEXP ASEXP, SEXP ySEXP, SEXP xSEXP, SEXP muSEXP, SEXP PSEXP, SEXP alphaSEXP, SEXP wtSEXP, SEXP familySEXP, SEXP linkSEXP, SEXP GridtypeSEXP, SEXP nSEXP, SEXP n_envoptSEXP, SEXP sortgridSEXP, SEXP use_openclSEXP, SEXP verboseSEXP, SEXP refineSEXP, SEXP refine_maxitSEXP) {
+ BEGIN_RCPP
+     Rcpp::RObject rcpp_result_gen;
+     Rcpp::RNGScope rcpp_rngScope_gen;
+@@ -248,7 +248,9 @@ BEGIN_RCPP
+     Rcpp::traits::input_parameter< bool >::type sortgrid(sortgridSEXP);
+     Rcpp::traits::input_parameter< bool >::type use_opencl(use_openclSEXP);
+     Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
+-    rcpp_result_gen = Rcpp::wrap(EnvelopeBuild_cpp_export(bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose));
++    Rcpp::traits::input_parameter< bool >::type refine(refineSEXP);
++    Rcpp::traits::input_parameter< int >::type refine_maxit(refine_maxitSEXP);
++    rcpp_result_gen = Rcpp::wrap(EnvelopeBuild_cpp_export(bStar, A, y, x, mu, P, alpha, wt, family, link, Gridtype, n, n_envopt, sortgrid, use_opencl, verbose, refine, refine_maxit));
+     return rcpp_result_gen;
+ END_RCPP
+ }
+@@ -510,7 +512,7 @@ static const R_CallMethodDef CallEntries[] = {
+     {"_glmbayes_rGammaGamma_cpp_export", (DL_FUNC) &_glmbayes_rGammaGamma_cpp_export, 12},
+     {"_glmbayes_rNormalGLM_std_cpp_export", (DL_FUNC) &_glmbayes_rNormalGLM_std_cpp_export, 13},
+     {"_glmbayes_EnvelopeSize_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeSize_cpp_export, 7},
+-    {"_glmbayes_EnvelopeBuild_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeBuild_cpp_export, 16},
++    {"_glmbayes_EnvelopeBuild_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeBuild_cpp_export, 18},
+     {"_glmbayes_EnvelopeBuild_Ind_Normal_Gamma_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeBuild_Ind_Normal_Gamma_cpp_export, 16},
+     {"_glmbayes_EnvelopeEval_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeEval_cpp_export, 11},
+     {"_glmbayes_EnvelopeDispersionBuild_cpp_export", (DL_FUNC) &_glmbayes_EnvelopeDispersionBuild_cpp_export, 17},
+diff --git a/src/envelope_refine.cpp b/src/envelope_refine.cpp
+new file mode 100644
+index 0000000..57ca6d7
+--- /dev/null
++++ b/src/envelope_refine.cpp
+@@ -0,0 +1,469 @@
++// envelope_refine.cpp -- see envelope_refine.h for the rationale.
++//
++// THE FIXED POINT.  On a cell A with tangency r and c = grad f2(r) (the
++// gradient of the negative log posterior, i.e. what EnvelopeEval returns as
++// cbars), the restricted envelope proposal is
++//
++//     q_r(z) prop exp(-c'z) phi(z) 1_A(z)   =>   Z ~ N(-c, I) restricted to A,
++//
++// which is exactly what rnorm_ct(logrt, loglt, -cbars, 1, logU) draws.  The cell
++// envelope mass is
++//
++//     log W_A(r) = -NegLL(r) + r'c + 0.5 c'c + sum_i log[Phi(hi_i) - Phi(lo_i)]
++//
++// matching Set_LogP.cpp's logP(i,1) = logP(i,0) - NegLL + 0.5 c'c + r'c, with
++// lo_i, hi_i the shifted bounds Set_Grid.cpp builds from Lint and cbars.
++//
++// Differentiating, with H = grad^2 L(r) negative semidefinite by concavity,
++//
++//     grad_r log W_A = H (m(r) - r),      m(r) = E_q[Z | A]
++//
++// so the stationary condition is r = m(r), and the step direction
++// d = m(r) - r satisfies d' grad_r log W_A = d' H d <= 0.  It is a descent
++// direction for the cell envelope mass by concavity alone, whatever the
++// starting tangency.  That is what makes the damped update with backtracking
++// safe rather than merely hopeful.
++//
++// Componentwise, since Z + c is a standard normal truncated to the fixed
++// interval [Lint(0,i) + c_i, Lint(1,i) + c_i],
++//
++//     m_i(r) = -c_i + R(Lint(0,i) + c_i, Lint(1,i) + c_i)
++//
++// with R the truncated standard normal mean.  On an axis EnvelopeSize left
++// unsplit (GIndex code 4, cell = the whole line) this is m_i = -c_i exactly.
++//
++// CONVERGENCE. Plain fixed-point updates can require very small damping
++// on unsplit axes. For modest grids we solve a finite-difference Newton
++// system for r-m(r), project into the cell, and accept only finite updates
++// with nonincreasing cell mass. Larger grids use the original iteration.
++// No universal convergence rate is assumed.
++//
++// NUMERICS.  R(a,b) has to survive arguments of order 1e5, which is exactly
++// where the pathological cells live.  Computing it as
++// exp(log phi(a) - log(1 - Phi(a))) fails there: both logs are about -5e9 and
++// differ by ~11.5, so the subtraction discards ~9 significant digits (returns
++// 100000.06367 where the truth is 100000.00001).  The stable route factors
++// phi(a) out of numerator and denominator:
++//
++//     R(a,b) = (1 - e) / (M(a) - e M(b)),  e = exp(-(b^2-a^2)/2) = phi(b)/phi(a)
++//     R(a,inf) = 1 / M(a)
++//
++// M(x) uses a continued fraction in the tail; the asymptotic series is only
++// good to ~1e-4 at x = 5, far too coarse at the branch point.
++//
++// NOTE ON ||c||.  A large tangency gradient is NOT by itself a failure
++// diagnostic.  After refinement the pathological case still carries
++// ||c|| ~ 7e3 while its envelope is excellent.  What matters is whether the
++// tangency and its cell are matched, i.e. the integrated cell mass, not the
++// size of the tilt.
++
++#include "RcppArmadillo.h"
++// [[Rcpp::depends(RcppArmadillo)]]
++#include "envelope_refine.h"
++#include "Envelopefuncs.h"
++
++#include <cmath>
++#include <limits>
++#include <vector>
++#include <algorithm>
++
++using namespace Rcpp;
++
++namespace glmbayes {
++namespace env {
++
++// ---------------------------------------------------------------- primitives
++
++double mills_ratio(double x) {
++  if (x < 3.0) {
++    // logs are O(1)-O(10) here, no cancellation
++    double lt = R::pnorm(x, 0.0, 1.0, /*lower*/0, /*log*/1);
++    double ld = R::dnorm(x, 0.0, 1.0, /*log*/1);
++    return std::exp(lt - ld);
++  }
++  long double cf = 0.0L;
++  for (int k = 120; k >= 1; --k)
++    cf = (long double)k / ((long double)x + cf);
++  return (double)(1.0L / ((long double)x + cf));
++}
++
++namespace {
++
++double R_pos(double a, double b) {
++  if (!R_finite(b)) return 1.0 / mills_ratio(a);
++  // (b-a)(b+a) rather than b*b - a*a: better relative accuracy when the
++  // endpoints are large and close together
++  double d = 0.5 * (b - a) * (b + a);
++  double e = std::exp(-d);
++  double num = -std::expm1(-d);
++  double den = mills_ratio(a) - e * mills_ratio(b);
++  // With the factored formula this should not happen.  If it does, fail safe:
++  // return NaN so the caller skips this coordinate and keeps the tangency
++  // glmbayes would have used.  Returning a midpoint would be inventing an
++  // answer, and we have already shown the midpoint is badly wrong for a
++  // narrow deep-tail interval once a*h = O(1).
++  if (!(den > 0.0) || !R_finite(den) || !R_finite(num)) return R_NaReal;
++  return num / den;
++}
++
++// log(exp(x) + exp(y)) without overflow
++inline double logaddexp(double x, double y) {
++  // -Inf is the identity; +Inf absorbs.  The naive !R_finite test returns the
++  // OTHER argument for +Inf, which is exactly wrong in a routine whose whole
++  // purpose is catastrophic envelope weights.
++  if (ISNAN(x) || ISNAN(y)) return R_NaReal;
++  if (x == R_PosInf || y == R_PosInf) return R_PosInf;
++  if (x == R_NegInf) return y;
++  if (y == R_NegInf) return x;
++  double M = std::max(x, y), m = std::min(x, y);
++  return M + std::log1p(std::exp(m - M));
++}
++
++} // anonymous namespace
++
++double trunc_norm_mean(double a, double b) {
++  if (!(a < b)) return a;
++  if (!R_finite(a) && !R_finite(b)) return 0.0;      // unsplit axis: m = -c
++  if (b <= 0.0) return -trunc_norm_mean(-b, -a);     // reflect the left tail
++  if (a >= 0.0) return R_pos(a, b);                  // stable Mills branch
++  // straddles zero: phi and the box probability are both O(1)
++  double pa = R_finite(a) ? R::dnorm(a, 0.0, 1.0, 0) : 0.0;
++  double pb = R_finite(b) ? R::dnorm(b, 0.0, 1.0, 0) : 0.0;
++  double lo = R_finite(a) ? R::pnorm(a, 0.0, 1.0, 1, 0) : 0.0;
++  double hi = R_finite(b) ? R::pnorm(b, 0.0, 1.0, 1, 0) : 1.0;
++  double den = hi - lo;
++  if (!(den > 0.0)) return R_NaReal;   // fail safe, do not invent a value
++  return (pa - pb) / den;
++}
++
++double log_box_prob(double a, double b) {
++  if (!(a < b)) return R_NegInf;
++  if (!R_finite(a) && !R_finite(b)) return 0.0;
++  if (!R_finite(a)) return R::pnorm(b, 0.0, 1.0, 1, 1);
++  if (!R_finite(b)) return R::pnorm(a, 0.0, 1.0, 0, 1);
++  double g1 = -a, g2 = b;
++  if (g1 >= g2) {                                    // upper-anchored
++    double lup = R::pnorm(b, 0.0, 1.0, 1, 1);
++    double llo = R::pnorm(a, 0.0, 1.0, 1, 1);
++    return lup + std::log(-std::expm1(llo - lup));
++  } else {                                           // lower-anchored
++    double lgt_a = R::pnorm(a, 0.0, 1.0, 0, 1);
++    double lgt_b = R::pnorm(b, 0.0, 1.0, 0, 1);
++    return lgt_a + std::log(-std::expm1(lgt_b - lgt_a));
++  }
++}
++
++// -------------------------------------------------- log-space mixture draw
++
++double logaddexp_safe(double x, double y) {
++  if (ISNAN(x) || ISNAN(y)) return R_NaReal;
++  if (x == R_PosInf || y == R_PosInf) return R_PosInf;
++  if (x == R_NegInf) return y;
++  if (y == R_NegInf) return x;
++  double M = std::max(x, y), m = std::min(x, y);
++  return M + std::log1p(std::exp(m - M));
++}
++
++int select_cell_log(const double* logw, int n, double u) {
++  if (n <= 1) return 0;
++  if (!(u > 0.0)) return 0;          // u == 0 selects the first cell
++  const double lu = std::log(u);
++  double acc = R_NegInf;
++  int J = 0;
++  while (J < n - 1) {                // last cell is the fallback
++    acc = logaddexp_safe(acc, logw[J]);
++    if (lu <= acc) return J;
++    ++J;
++  }
++  return n - 1;
++}
++
++// ------------------------------------------------------------- cell bounds
++// Exactly the codes Set_Grid.cpp uses to build Down/Up, so the package has one
++// convention rather than two.  Code 4 is an axis EnvelopeSize left unsplit.
++namespace {
++inline void cell_bounds(int code, double lint0, double lint1, double cb,
++                        double* lo, double* hi) {
++  switch (code) {
++    case 1:  *lo = R_NegInf;     *hi = lint0 + cb;  break;
++    case 2:  *lo = lint0 + cb;   *hi = lint1 + cb;  break;
++    case 3:  *lo = lint1 + cb;   *hi = R_PosInf;    break;
++    default: *lo = R_NegInf;     *hi = R_PosInf;    break;   // code 4
++  }
++}
++} // anonymous namespace
++
++// ------------------------------------------------------------- refinement
++
++int refine_tangency(Rcpp::NumericMatrix        G4,
++                    const Rcpp::NumericMatrix& GIndex,
++                    const arma::mat&           Lint,
++                    const Rcpp::NumericVector& y,
++                    const Rcpp::NumericMatrix& x,
++                    const Rcpp::NumericMatrix& mu,
++                    const Rcpp::NumericMatrix& P,
++                    const Rcpp::NumericVector& alpha,
++                    const Rcpp::NumericVector& wt,
++                    const std::string&         family,
++                    const std::string&         link,
++                    bool                       use_opencl,
++                    bool                       verbose,
++                    int                        maxit,
++                    double                     rho0,
++                    double                     tol,
++                    double                     min_gain,
++                    double*                    dlogW_out,
++                    double*                    resid_out,
++                    bool                       accelerate,
++                    Rcpp::List*                diagnostics)
++{
++  const int l1 = G4.nrow();      // parameters
++  const int l2 = G4.ncol();      // grid cells
++
++  if (dlogW_out) *dlogW_out = 0.0;
++  if (resid_out) *resid_out = R_NaReal;
++  maxit = std::max(0, maxit);
++
++  std::vector<double> logW_cur(l2), rho(l2, rho0);
++  std::vector<double> cb_cur((size_t)l2 * l1);
++  Rcpp::NumericMatrix G4_try(l1, l2);
++
++  // total envelope mass is a LOG-SUM-EXP over cells, not a sum of logs:
++  // sum_j W_j, reported in logs.  Summing logW_j would be the log of the
++  // product, which is not a meaningful quantity here.
++  double lse_0 = R_NegInf, lse_prev = R_NegInf;
++
++  // --- evaluate at the incoming tangencies -------------------------------
++  {
++    Rcpp::List ev = EnvelopeEval(G4, y, x, mu, P, alpha, wt,
++                                 family, link, use_opencl, false);
++    Rcpp::NumericVector NegLL = ev["NegLL"];
++    arma::mat cbars = Rcpp::as<arma::mat>(ev["cbars"]);   // l2 x l1
++
++    for (int j = 0; j < l2; ++j) {
++      double quad = 0.0, lin = 0.0, box = 0.0;
++      for (int i = 0; i < l1; ++i) {
++        double cb = cbars(j, i);
++        cb_cur[(size_t)j*l1 + i] = cb;
++        quad += 0.5 * cb * cb;
++        lin  += G4(i, j) * cb;
++        double lo, hi;
++        cell_bounds((int) GIndex(j, i), Lint(0, i), Lint(1, i), cb, &lo, &hi);
++        box += log_box_prob(lo, hi);
++      }
++      logW_cur[j] = -NegLL[j] + lin + quad + box;
++      lse_0 = logaddexp(lse_0, logW_cur[j]);
++    }
++    lse_prev = lse_0;
++
++    // The proposal evaluation has finite checks; the initial one did not.
++    // If the incoming envelope cannot even be scored, leave G4 untouched --
++    // the promise is that a failed refinement retains glmbayes's tangencies.
++    if (ISNAN(lse_0) || lse_0 == R_PosInf) {
++      if (verbose)
++        Rcpp::Rcout << "[EnvelopeBuild:refine_tangency] initial envelope mass "
++                       "not usable; tangencies left unchanged\n";
++      return 0;
++    }
++  }
++
++  // m(r) is cheap once the likelihood gradient is known. Differentiate the
++  // fixed-point equation F(r)=r-m(r), rather than the potentially enormous
++  // cell mass: J_F delta = m(r)-r. Numerical derivatives change only proposed
++  // tangencies; the original envelope mass check remains authoritative.
++  auto targets = [&](const NumericMatrix& cbars) {
++    NumericMatrix target(l1, l2);
++    for (int j = 0; j < l2; ++j) for (int i = 0; i < l1; ++i) {
++      double cb = cbars(j, i), lo, hi;
++      cell_bounds((int) GIndex(j, i), Lint(0, i), Lint(1, i), cb, &lo, &hi);
++      target(i, j) = -cb + trunc_norm_mean(lo, hi);
++    }
++    return target;
++  };
++  auto current_targets = [&]() {
++    NumericMatrix cbars(l2, l1);
++    for (int j = 0; j < l2; ++j) for (int i = 0; i < l1; ++i)
++      cbars(j, i) = cb_cur[(size_t)j*l1 + i];
++    return targets(cbars);
++  };
++  auto residual = [&](const NumericMatrix& target) {
++    double result = 0.0;
++    for (int j = 0; j < l2; ++j) for (int i = 0; i < l1; ++i) {
++      const double delta = target(i,j) - G4(i,j);
++      if (!R_finite(delta)) return R_PosInf;
++      result = std::max(result, std::fabs(delta));
++    }
++    return result;
++  };
++  // Bound Jacobian storage (~16 MB) and the number of extra likelihood
++  // evaluations per pass. Large grids retain the original low-memory path.
++  const bool use_newton = accelerate && l1 <= 16 &&
++      (double) l1 * l1 * l2 <= 2000000.0;
++  NumericVector accepted(l2), rejected(l2), newton_steps(l2);
++  int iter = 0;
++  double resid = R_PosInf;
++  NumericMatrix target = current_targets();
++
++  while (iter < maxit) {
++    Rcpp::checkUserInterrupt();
++    resid = residual(target);
++    if (resid < tol) break;
++    NumericMatrix step(l1, l2);
++    for (int j = 0; j < l2; ++j) for (int i = 0; i < l1; ++i)
++      step(i,j) = R_finite(target(i,j)) ? target(i,j)-G4(i,j) : 0.0;
++    std::vector<bool> used_newton(l2, false);
++    if (use_newton) {
++      std::vector<arma::mat> jac(l2, arma::eye<arma::mat>(l1,l1));
++      for (int axis = 0; axis < l1; ++axis) {
++        NumericMatrix perturbed = clone(G4);
++        NumericVector h(l2);
++        for (int j = 0; j < l2; ++j) {
++          h[j] = 1e-5 * std::max(1.0, std::fabs(G4(axis,j)));
++          perturbed(axis,j) += h[j];
++        }
++        List ev = EnvelopeEval(perturbed,y,x,mu,P,alpha,wt,
++                               family,link,use_opencl,false);
++        NumericMatrix pt = targets(as<NumericMatrix>(ev["cbars"]));
++        for (int j = 0; j < l2; ++j) for (int i = 0; i < l1; ++i)
++          jac[j](i,axis) -= (pt(i,j)-target(i,j))/h[j];
++      }
++      for (int j = 0; j < l2; ++j) {
++        arma::vec rhs(l1), delta;
++        for (int i = 0; i < l1; ++i) rhs[i] = step(i,j);
++        if (jac[j].is_finite() && rhs.is_finite() &&
++            arma::solve(delta,jac[j],rhs,arma::solve_opts::no_approx) &&
++            delta.is_finite()) {
++          for (int i = 0; i < l1; ++i) step(i,j) = delta[i];
++          used_newton[j] = true;
++        }
++      }
++    }
++    bool any_move = false;
++    for (int j = 0; j < l2; ++j) for (int i = 0; i < l1; ++i) {
++      double cand = G4(i,j) + rho[j]*step(i,j);
++      if (!R_finite(cand)) cand = G4(i,j);
++      const int code = (int) GIndex(j,i);
++      // Project Newton candidates into their fixed cell. The legacy convex
++      // combination already stays there. Neither path changes the partition.
++      if (code == 1 || code == 2)
++        cand = std::min(cand, Lint(code == 1 ? 0 : 1,i));
++      if (code == 2 || code == 3)
++        cand = std::max(cand, Lint(code == 2 ? 0 : 1,i));
++      G4_try(i,j) = cand;
++      if (cand != G4(i,j)) any_move = true;
++    }
++    if (!any_move) break;
++    ++iter;
++    if (verbose)
++      Rcpp::Rcout << "    [refine] pass " << iter << ": resid = " << resid
++                  << ", newton = " << use_newton << "\n";
++
++    // --- evaluate the proposal ------------------------------------------
++    Rcpp::List ev2 = EnvelopeEval(G4_try, y, x, mu, P, alpha, wt,
++                                  family, link, use_opencl, false);
++    Rcpp::NumericVector NegLL2 = ev2["NegLL"];
++    arma::mat cbars2 = Rcpp::as<arma::mat>(ev2["cbars"]);
++
++    // --- accept per cell only if its envelope mass did not increase ------
++    for (int j = 0; j < l2; ++j) {
++      double quad = 0.0, lin = 0.0, box = 0.0;
++      bool ok = R_finite(NegLL2[j]);
++      for (int i = 0; ok && i < l1; ++i) {
++        double cb = cbars2(j, i);
++        if (!R_finite(cb)) { ok = false; break; }
++        quad += 0.5 * cb * cb;
++        lin  += G4_try(i, j) * cb;
++        double lo, hi;
++        cell_bounds((int) GIndex(j, i), Lint(0, i), Lint(1, i), cb, &lo, &hi);
++        double lb = log_box_prob(lo, hi);
++        if (!R_finite(lb)) { ok = false; break; }
++        box += lb;
++      }
++      double logW_new = ok ? (-NegLL2[j] + lin + quad + box) : R_PosInf;
++
++      // Close to the root, the remaining mass improvement is quadratic
++      // in the residual and can fall below floating-point resolution. Permit
++      // a Newton correction only within a summation-roundoff allowance and
++      // only when it at least halves an already small cell residual. This
++      // changes the tangent, never the likelihood or rejection acceptance rule.
++      double old_resid = 0.0, new_resid = 0.0;
++      for (int i = 0; i < l1; ++i) {
++        old_resid = std::max(old_resid, std::fabs(target(i,j)-G4(i,j)));
++        double lo, hi, cb = cbars2(j,i);
++        cell_bounds((int) GIndex(j,i),Lint(0,i),Lint(1,i),cb,&lo,&hi);
++        double delta = -cb + trunc_norm_mean(lo,hi) - G4_try(i,j);
++        new_resid = R_finite(delta) ? std::max(new_resid,std::fabs(delta)) : R_PosInf;
++      }
++      const double roundoff = 16.0 * std::numeric_limits<double>::epsilon() *
++          (1.0 + std::fabs(NegLL2[j]) + std::fabs(lin) + std::fabs(quad) + std::fabs(box));
++      const bool root_correction = used_newton[j] && old_resid < 1e-3 &&
++          new_resid < 0.5*old_resid && logW_new <= logW_cur[j] + roundoff;
++      if (ok && R_finite(logW_new) && (logW_new <= logW_cur[j] || root_correction)) {
++        for (int i = 0; i < l1; ++i) {
++          G4(i, j) = G4_try(i, j);
++          cb_cur[(size_t)j*l1 + i] = cbars2(j, i);
++        }
++        logW_cur[j] = logW_new;
++        accepted[j] += 1;
++        if (used_newton[j]) {
++          newton_steps[j] += 1;
++          rho[j] = std::min(rho0, 2.0*rho[j]);
++        }
++      } else {
++        rejected[j] += 1;
++        rho[j] *= 0.5;              // shorter step for this cell next pass
++      }
++    }
++
++    target = current_targets();
++    resid = residual(target);
++
++    // --- second stopping rule: total envelope mass has stopped improving --
++    double lse = R_NegInf;
++    for (int j = 0; j < l2; ++j) lse = logaddexp(lse, logW_cur[j]);
++    double gain = lse_prev - lse;                 // positive = envelope shrank
++    lse_prev = lse;
++    if (verbose)
++      Rcpp::Rcout << "    [refine] pass " << iter << ": gain = " << gain
++                  << ", lse = " << lse << "\n";
++    // the gain rule must never fire while the fixed point is still far
++    // away: logsumexp is dominated by the worst cell, so the total can
++    // look flat for several passes while individual cells improve hugely
++    if (R_finite(gain) && gain >= 0.0 && gain < min_gain && resid < 1e-3) break;
++  }
++
++  resid = residual(current_targets());
++  double lse_fin = R_NegInf;
++  for (int j = 0; j < l2; ++j) lse_fin = logaddexp(lse_fin, logW_cur[j]);
++
++  if (diagnostics) {
++    *diagnostics = List::create(_["iterations"]=iter, _["residual"]=resid,
++      _["converged"]=(resid < tol), _["accelerated"]=use_newton,
++      _["log_mass_initial"]=lse_0, _["log_mass_final"]=lse_fin,
++      _["cell_log_mass"]=wrap(logW_cur), _["step_fraction"]=wrap(rho),
++      _["accepted_updates"]=accepted, _["rejected_updates"]=rejected,
++      _["newton_updates"]=newton_steps);
++  }
++  if (resid_out) *resid_out = resid;
++  if (dlogW_out) *dlogW_out = lse_0 - lse_fin;     // positive = improvement
++
++  if (verbose) {
++    // per-cell logW at exit, so the internal quantity can be checked against
++    // the package's own PLSD after Set_Grid/Set_LogP have run
++    double mn = R_PosInf, mx = R_NegInf;
++    for (int j = 0; j < l2; ++j)
++      if (R_finite(logW_cur[j])) { mn = std::min(mn, logW_cur[j]);
++                                   mx = std::max(mx, logW_cur[j]); }
++    Rcpp::Rcout << "[EnvelopeBuild:refine_tangency] logW range at exit: ["
++                << mn << ", " << mx << "]\n";
++    Rcpp::Rcout << "[EnvelopeBuild:refine_tangency] iterations = " << iter
++                << ", log total envelope mass: " << lse_0 << " -> " << lse_fin
++                << " (improvement " << (lse_0 - lse_fin) << ")"
++                << ", final max|m(r)-r| = " << resid << "\n";
++  }
++
++  return iter;
++}
++
++} // namespace env
++} // namespace glmbayes
+diff --git a/src/envelope_refine.h b/src/envelope_refine.h
+new file mode 100644
+index 0000000..660bf7b
+--- /dev/null
++++ b/src/envelope_refine.h
+@@ -0,0 +1,107 @@
++// envelope_refine.h -- optional refinement of envelope tangency points.
++//
++// Nygren & Nygren (2006) state that the optimal tangency for a restricted
++// likelihood-subgradient density satisfies a self-consistency condition: the
++// tangency equals the expectation under that restricted density.  glmbayes
++// currently uses the closed-form normal-calibrated positions z* +/- omega as
++// an approximation to it, which is excellent for near-Gaussian posteriors and
++// can be catastrophically misplaced otherwise.
++//
++// This header exposes a short damped fixed-point iteration toward that
++// condition, using the existing positions as starting values.  The partition,
++// the standardization, the mixture construction and the accept/reject sampler
++// are all untouched.
++//
++// VALIDITY IS NOT AT STAKE.  Any tangent to a globally concave log-likelihood
++// is a valid upper envelope; optimality only affects the envelope's mass, i.e.
++// the rejection constant.  Refinement can change speed but never correctness,
++// and a cell whose refinement fails simply keeps the tangency glmbayes would
++// have used anyway.
++
++#ifndef GLMBAYES_ENVELOPE_REFINE_H
++#define GLMBAYES_ENVELOPE_REFINE_H
++
++#include "RcppArmadillo.h"
++#include <string>
++
++namespace glmbayes {
++namespace env {
++
++// Mills ratio M(x) = (1 - Phi(x)) / phi(x), x >= 0.  Continued fraction in the
++// tail, direct evaluation near the origin.
++double mills_ratio(double x);
++
++// Mean of a standard normal truncated to (a, b).  Stable into the 1e5 tails,
++// where forming exp(log phi - log tail) loses ~9 significant digits.
++double trunc_norm_mean(double a, double b);
++
++// log( Phi(b) - Phi(a) ), branch-selected, matching Set_Grid.cpp.
++double log_box_prob(double a, double b);
++
++// log(exp(x) + exp(y)), overflow-safe.  -Inf is the identity, +Inf absorbs.
++double logaddexp_safe(double x, double y);
++
++// Draw a mixture component from NORMALIZED LOG weights, using one uniform.
++// Equivalent to the cumulative scan over exp(logw), but without ever
++// exponentiating an individual weight, so a cell whose probability is below
++// the smallest representable double keeps it instead of underflowing to zero.
++// Bounded at n-1: the last cell absorbs any residual, so cumulative roundoff
++// cannot run past the end of the array.
++//
++// Exposed so it can be tested directly on supplied log weights, with no
++// envelope and no family involved.
++int select_cell_log(const double* logw, int n, double u);
++
++// Safeguarded Newton refinement of the fixed-point equation r = m(r).
++// Finite-difference Jacobians accelerate modest grids; larger grids retain
++// damped fixed-point updates. Every accepted cell update must have finite,
++// nonincreasing envelope mass (up to roundoff for root corrections). accelerate=false retains the legacy iteration.
++// Optional diagnostics report final-state residuals, per-cell damping, masses,
++// and update counts without requiring verbose output.
++//
++//   G4        l1 x l2, parameters x grid points.  MODIFIED IN PLACE.
++//   GIndex    l2 x l1, per-cell per-axis interval code (1,2,3 for a split axis,
++//             4 for an axis EnvelopeSize left unsplit), as used by Set_Grid.
++//   Lint      2 x l1, per-axis interval cutpoints.
++//   maxit     ceiling on evaluated update passes. Convergence depends on the
++//             model and grid; there is no universal contraction factor.
++//   rho0      initial step fraction.  1.0 takes the full fixed-point step and
++//             lets per-cell backtracking damp only the cells that need it;
++//             smaller values merely guarantee slow geometric approach.
++//   tol       stop when max|m(r) - r| < tol.
++//   min_gain  stop when a pass improves the log total envelope mass by less
++//             than this, so well-placed families do not pay for the
++//             pathological iteration budget.
++//
++// dlogW_out receives the improvement in the LOG TOTAL ENVELOPE MASS,
++// logsumexp_j(log W_j) before minus after (positive means the envelope
++// shrank).  Note this is a log-sum-exp over cells, not a sum of logs.
++// resid_out receives the final max|m(r) - r|.  Both are diagnostics, so we can
++// tell whether the iteration budget is adequate and whether ordinary families
++// can exit early.  Returns the number of passes performed.
++int refine_tangency(Rcpp::NumericMatrix        G4,
++                    const Rcpp::NumericMatrix& GIndex,
++                    const arma::mat&           Lint,
++                    const Rcpp::NumericVector& y,
++                    const Rcpp::NumericMatrix& x,
++                    const Rcpp::NumericMatrix& mu,
++                    const Rcpp::NumericMatrix& P,
++                    const Rcpp::NumericVector& alpha,
++                    const Rcpp::NumericVector& wt,
++                    const std::string&         family,
++                    const std::string&         link,
++                    bool                       use_opencl,
++                    bool                       verbose,
++                    int                        maxit    = 60,
++                    double                     rho0     = 1.0,
++                    double                     tol      = 1e-6,
++                    double                     min_gain = 1e-3,
++                    double*                    dlogW_out = NULL,
++                    double*                    resid_out = NULL,
++                    bool                       accelerate = true,
++                    Rcpp::List*                diagnostics = NULL);
++
++} // namespace env
++} // namespace glmbayes
++
++#endif
+diff --git a/src/export_wrappers.cpp b/src/export_wrappers.cpp
+index 8f0ced1..c4355a6 100644
+--- a/src/export_wrappers.cpp
++++ b/src/export_wrappers.cpp
+@@ -297,12 +297,14 @@ Rcpp::List EnvelopeBuild_cpp_export(
+     int n_envopt,
+     bool sortgrid,
+     bool use_opencl,
+-    bool verbose
++    bool verbose,
++    bool refine = true,
++    int refine_maxit = 60
+ ) {
+   return glmbayes::env::EnvelopeBuild(
+     bStar, A, y, x, mu, P, alpha, wt,
+     family, link, Gridtype, n, n_envopt,
+-    sortgrid, use_opencl, verbose
++    sortgrid, use_opencl, verbose, refine, refine_maxit
+   );
+ }
+ 
+diff --git a/src/famfuncs.h b/src/famfuncs.h
+index fbe59d9..d824b4e 100644
+--- a/src/famfuncs.h
++++ b/src/famfuncs.h
+@@ -103,6 +103,44 @@ Rcpp::List f2_f3_binomial_logit(
+     int                  progbar = 0
+ );
+ 
++//----------------- Conway-Maxwell-binomial (cmb) ------------------------------
++// Natural parametrisation: theta = x'beta on rows 1..N, nu on row N+1 of an
++// AUGMENTED design.  nu is a row, not a coordinate of b, so the split of the
++// linear predictor survives the right-multiplications applied by
++// glmb_Standardize_Model.  See src/famfuncs_cmb.cpp for the full rationale.
++
++NumericVector f1_cmb(NumericMatrix b, NumericVector y, NumericMatrix x,
++                     NumericVector alpha, NumericVector wt);
++
++NumericVector f2_cmb(NumericMatrix b, NumericVector y, NumericMatrix x,
++                     NumericMatrix mu, NumericMatrix P, NumericVector alpha,
++                     NumericVector wt, int progbar);
++
++arma::mat f3_cmb(NumericMatrix b, NumericVector y, NumericMatrix x,
++                 NumericMatrix mu, NumericMatrix P, NumericVector alpha,
++                 NumericVector wt, int progbar);
++
++arma::vec f2_cmb_rmat(
++    const RMatrix<double>& b,
++    const RVector<double>& y,
++    const RMatrix<double>& x,
++    const RMatrix<double>& mu,
++    const RMatrix<double>& P,
++    const RVector<double>& alpha,
++    const RVector<double>& wt,
++    int progbar);
++
++Rcpp::List f2_f3_cmb(
++    Rcpp::NumericMatrix  b,
++    Rcpp::NumericVector  y,
++    Rcpp::NumericMatrix  x,
++    Rcpp::NumericMatrix  mu,
++    Rcpp::NumericMatrix  P,
++    Rcpp::NumericVector  alpha,
++    Rcpp::NumericVector  wt,
++    int                  progbar = 0
++);
++
+ //----------------- binomial_Probit -------------------------------------------------
+   
+ NumericVector  f1_binomial_probit(NumericMatrix b,NumericVector y,NumericMatrix x,NumericVector alpha,NumericVector wt);
+diff --git a/src/famfuncs_cmb.cpp b/src/famfuncs_cmb.cpp
+new file mode 100644
+index 0000000..96703a6
+--- /dev/null
++++ b/src/famfuncs_cmb.cpp
+@@ -0,0 +1,328 @@
++// famfuncs_cmb.cpp -- Conway-Maxwell-binomial family for glmbayes.
++//
++// CMB in its natural parametrisation:
++//   log f(y | theta, nu) = theta*y + nu*t(y) - kappa(theta, nu)
++//   t(y)   = log C(m, y)
++//   kappa  = log sum_{j=0}^{m} exp(theta*j + nu*t(j))
++// Globally concave in (beta, gamma) because kappa is a log-sum-exp of affine
++// functions.  Likelihood, gradient and Hessian all come from the same
++// (m+1)-term sum: no inner solve, no implicit derivatives.
++//
++// TWO LINEAR PREDICTORS.  Both theta and nu carry covariates:
++//   theta_i = x_i' beta,   nu_i = z_i' gamma,
++// with identity links on both (theta is already the natural parameter, and nu
++// must be free to go negative for the boundary regime).  They are supplied as
++// one STACKED design of 2N rows:
++//
++//     x = [ X  0 ]   rows 1..N     -> theta_1..theta_N
++//         [ 0  Z ]   rows N+1..2N  -> nu_1..nu_N
++//
++// so that eta = alpha + x*b splits by ROW into (theta, nu).  A scalar nu is
++// the special case Z = 1_N.
++//
++// WHY ROWS AND NOT COORDINATES.  glmb_Standardize_Model maps b -> L*b and
++// x -> x*LInv, and EnvelopeBuild/rNormalGLM_std receive the rotated x with
++// the raw y, alpha, wt.  A GLM is unaffected because its likelihood sees b
++// only through x*b.  CMB sees b through two functionals; carrying nu as a
++// coordinate b[nu_index] is not invariant, since after rotation
++// nu = e'LInv b is a dense combination.  The envelope would then evaluate the
++// wrong nu while still satisfying max log h <= 0 -- silent and undetectable
++// downstream.  Expressed as rows, both functionals survive any
++// right-multiplication of x exactly.
++//
++// CALLING CONTRACT (mirrors f2_f3_binomial_logit):
++//   b      l2 x m1  parameters x grid points   (b = G4 = trans(G3))
++//   y      l1 = 2N  PROPORTIONS in rows 1..N; rows N+1..2N are placeholders
++//   x      l1 x l2  stacked design as above
++//   alpha  l1       offset added to the linear predictor
++//   wt     l1 = 2N  trial counts m in rows 1..N; rows N+1..2N placeholders
++//   grad returned m1 x l2.
++
++#include <cmath>
++#include "RcppArmadillo.h"
++// [[Rcpp::depends(RcppArmadillo)]]
++#include <limits>
++#include <RcppParallel.h>
++#include <Rmath.h>
++#include "famfuncs.h"
++#include "progress_utils.h"
++
++#include <map>
++#include <vector>
++#include <numeric>
++
++using namespace Rcpp;
++using namespace RcppParallel;
++using namespace glmbayes::progress;
++
++namespace glmbayes {
++namespace fam {
++
++namespace {
++
++struct CMBData {
++  int N;
++  std::vector<int>    m;
++  std::vector<double> yc;
++  std::vector<double> ty;
++  std::map<int, std::vector<double> > tab;
++};
++
++// Templated on the container so the same code serves NumericVector and
++// RcppParallel::RVector<double>.  Uses only R::lchoose, pure Rmath with no
++// allocation, so it is safe from a worker thread.
++template <typename VY, typename VW>
++CMBData cmb_prep_t(const VY& y, const VW& wt, int N) {
++  CMBData d;
++  d.N = N;
++  d.m.resize(N);
++  d.yc.resize(N);
++  d.ty.resize(N);
++
++  bool all_one = true;
++
++  for (int j = 0; j < N; ++j) {
++    int mj = (int) std::lround(wt[j]);
++    if (mj < 1) Rcpp::stop("CMB: trial count m < 1");
++    if (mj != 1) all_one = false;
++
++    double ycj = (double) std::lround(wt[j] * y[j]);
++    if (ycj < 0.0 || ycj > (double) mj)
++      Rcpp::stop("CMB: implied count outside [0, m]");
++
++    d.m[j]  = mj;
++    d.yc[j] = ycj;
++
++    if (d.tab.find(mj) == d.tab.end()) {
++      std::vector<double> t(mj + 1);
++      for (int k = 0; k <= mj; ++k)
++        t[k] = R::lchoose((double) mj, (double) k);
++      d.tab[mj] = t;
++    }
++    d.ty[j] = d.tab[mj][(int) ycj];
++  }
++
++  if (all_one)
++    Rcpp::stop("CMB: all m = 1; t(y) is identically 0 and nu is unidentified");
++
++  return d;
++}
++
++inline void cmb_moments(double theta, double nu,
++                        const std::vector<double>& t,
++                        double* lZ, double* EY, double* Et) {
++  const int mj = (int) t.size() - 1;
++
++  double M = R_NegInf;
++  for (int k = 0; k <= mj; ++k) {
++    double lw = theta * (double) k + nu * t[k];
++    if (lw > M) M = lw;
++  }
++
++  double s = 0.0, sy = 0.0, st = 0.0;
++  for (int k = 0; k <= mj; ++k) {
++    double e = std::exp(theta * (double) k + nu * t[k] - M);
++    s += e;
++    if (EY != NULL) { sy += e * (double) k; st += e * t[k]; }
++  }
++
++  *lZ = M + std::log(s);
++  if (EY != NULL) { *EY = sy / s; *Et = st / s; }
++}
++
++inline int cmb_N(int l1) {
++  if (l1 % 2 != 0)
++    Rcpp::stop("CMB: nrow(x) must be even (2N: N theta rows then N nu rows). "
++               "Build the design with cmb_augment().");
++  return l1 / 2;
++}
++
++} // anonymous namespace
++
++// ------------------------------------------------------------------- f2/f3
++
++Rcpp::List f2_f3_cmb(
++    Rcpp::NumericMatrix  b,
++    Rcpp::NumericVector  y,
++    Rcpp::NumericMatrix  x,
++    Rcpp::NumericMatrix  mu,
++    Rcpp::NumericMatrix  P,
++    Rcpp::NumericVector  alpha,
++    Rcpp::NumericVector  wt,
++    int                  progbar
++) {
++  const int l1 = x.nrow();
++  const int l2 = x.ncol();
++  const int m1 = b.ncol();
++  const int N  = cmb_N(l1);
++
++  if (N < 1) Rcpp::stop("CMB: empty design");
++  if (b.nrow() != l2) Rcpp::stop("CMB: nrow(b) must equal ncol(x)");
++  if (y.size() != l1 || wt.size() != l1 || alpha.size() != l1)
++    Rcpp::stop("CMB: y, wt and alpha must have length nrow(x)");
++
++  CMBData d = cmb_prep_t(y, wt, N);
++
++  arma::mat x2    (x.begin(),     l1, l2, false);
++  arma::mat alpha2(alpha.begin(), l1, 1,  false);
++  arma::mat mu2   (mu.begin(),    l2, 1,  false);
++  arma::mat P2    (P.begin(),     l2, l2, false);
++
++  Rcpp::NumericMatrix b2temp(l2, 1);
++  Rcpp::NumericMatrix bmu(l2, 1);
++  arma::mat bmu2(bmu.begin(), l2, 1, false);
++
++  Rcpp::NumericVector qf(m1);
++
++  Rcpp::NumericMatrix out(l2, m1);
++  arma::mat out2(out.begin(), l2, m1, false);
++
++  arma::colvec eta(l1);
++  arma::colvec sc(l1);
++
++  for (int i = 0; i < m1; ++i) {
++    Rcpp::checkUserInterrupt();
++    if (progbar == 1) {
++      progress_bar(i, m1 - 1);
++      if (i == m1 - 1) Rcpp::Rcout << "" << std::endl;
++    }
++
++    b2temp = b(Range(0, l2 - 1), Range(i, i));
++    arma::mat b2(b2temp.begin(), l2, 1, false);
++
++    bmu2 = b2 - mu2;
++    double prior = 0.5 * arma::as_scalar(bmu2.t() * P2 * bmu2);
++
++    eta = alpha2 + x2 * b2;
++
++    double ll = 0.0;
++    for (int j = 0; j < N; ++j) {
++      const double th = eta(j);
++      const double nu = eta(N + j);
++      double lZ, EY, Et;
++      cmb_moments(th, nu, d.tab[d.m[j]], &lZ, &EY, &Et);
++
++      ll += th * d.yc[j] + nu * d.ty[j] - lZ;
++      sc(j)     = d.yc[j] - EY;
++      sc(N + j) = d.ty[j] - Et;
++    }
++
++    qf(i) = -ll + prior;
++
++    Rcpp::NumericMatrix::Column outcol = out(_, i);
++    arma::mat outtemp2(outcol.begin(), l2, 1, false);
++    outtemp2 = P2 * bmu2 - x2.t() * sc;
++  }
++
++  arma::mat grad = trans(out2);
++
++  return Rcpp::List::create(
++    Rcpp::Named("qf")   = qf,
++    Rcpp::Named("grad") = grad
++  );
++}
++
++// ----------------------------------------------------------------------- f1
++
++NumericVector f1_cmb(NumericMatrix b, NumericVector y, NumericMatrix x,
++                     NumericVector alpha, NumericVector wt) {
++  const int l1 = x.nrow();
++  const int l2 = x.ncol();
++  const int m1 = b.ncol();
++  const int N  = cmb_N(l1);
++
++  CMBData d = cmb_prep_t(y, wt, N);
++
++  arma::mat x2    (x.begin(),     l1, l2, false);
++  arma::mat alpha2(alpha.begin(), l1, 1,  false);
++
++  Rcpp::NumericMatrix b2temp(l2, 1);
++  NumericVector res(m1);
++  arma::colvec eta(l1);
++
++  for (int i = 0; i < m1; ++i) {
++    b2temp = b(Range(0, l2 - 1), Range(i, i));
++    arma::mat b2(b2temp.begin(), l2, 1, false);
++
++    eta = alpha2 + x2 * b2;
++
++    double ll = 0.0;
++    for (int j = 0; j < N; ++j) {
++      double lZ;
++      cmb_moments(eta(j), eta(N + j), d.tab[d.m[j]], &lZ, NULL, NULL);
++      ll += eta(j) * d.yc[j] + eta(N + j) * d.ty[j] - lZ;
++    }
++    res(i) = -ll;
++  }
++  return res;
++}
++
++// ------------------------------------------------------------------- f2, f3
++
++NumericVector f2_cmb(NumericMatrix b, NumericVector y, NumericMatrix x,
++                     NumericMatrix mu, NumericMatrix P, NumericVector alpha,
++                     NumericVector wt, int progbar) {
++  Rcpp::List r = f2_f3_cmb(b, y, x, mu, P, alpha, wt, progbar);
++  return Rcpp::as<NumericVector>(r["qf"]);
++}
++
++arma::mat f3_cmb(NumericMatrix b, NumericVector y, NumericMatrix x,
++                 NumericMatrix mu, NumericMatrix P, NumericVector alpha,
++                 NumericVector wt, int progbar) {
++  Rcpp::List r = f2_f3_cmb(b, y, x, mu, P, alpha, wt, progbar);
++  return Rcpp::as<arma::mat>(r["grad"]);
++}
++
++// ------------------------------------------------- thread-safe rmat variant
++// Used by the parallel sampler's accept step.  No R allocation: only Rmath
++// and Armadillo views over RcppParallel memory.
++
++arma::vec f2_cmb_rmat(
++    const RMatrix<double>& b,
++    const RVector<double>& y,
++    const RMatrix<double>& x,
++    const RMatrix<double>& mu,
++    const RMatrix<double>& P,
++    const RVector<double>& alpha,
++    const RVector<double>& wt,
++    const int progbar
++) {
++  std::size_t l1 = x.nrow();
++  std::size_t l2 = x.ncol();
++  std::size_t m1 = b.ncol();
++  int N = cmb_N((int) l1);
++
++  CMBData d = cmb_prep_t(y, wt, N);
++
++  arma::mat b2full(const_cast<double*>(&*b.begin()),     l2, m1, false);
++  arma::mat x2    (const_cast<double*>(&*x.begin()),     l1, l2, false);
++  arma::mat mu2   (const_cast<double*>(&*mu.begin()),    l2, 1,  false);
++  arma::mat P2    (const_cast<double*>(&*P.begin()),     l2, l2, false);
++  arma::mat alpha2(const_cast<double*>(&*alpha.begin()), l1, 1,  false);
++
++  arma::vec res(m1, arma::fill::none);
++  arma::mat bmu(l2, 1, arma::fill::none);
++
++  for (std::size_t i = 0; i < m1; ++i) {
++    arma::mat b_i(b2full.colptr(i), l2, 1, false);
++
++    bmu = b_i - mu2;
++    double mahal = 0.5 * arma::as_scalar(bmu.t() * P2 * bmu);
++
++    double ll = 0.0;
++    for (int j = 0; j < N; ++j) {
++      double th = alpha2(j, 0)     + arma::dot(x2.row(j),     b_i);
++      double nu = alpha2(N + j, 0) + arma::dot(x2.row(N + j), b_i);
++      double lZ;
++      cmb_moments(th, nu, d.tab[d.m[j]], &lZ, NULL, NULL);
++      ll += th * d.yc[j] + nu * d.ty[j] - lZ;
++    }
++
++    res(i) = -ll + mahal;
++  }
++
++  return res;
++}
++
++} // namespace fam
++} // namespace glmbayes
+diff --git a/src/rIndepNormalGammaReg.cpp b/src/rIndepNormalGammaReg.cpp
+index 843dd5e..4eaaa0a 100644
+--- a/src/rIndepNormalGammaReg.cpp
++++ b/src/rIndepNormalGammaReg.cpp
+@@ -116,6 +116,7 @@ double g2_face_at_disp(
+ // rIndepNormalGammaReg_worker: parallel Normal–Gamma simulation with envelope
+ //-----------------------------------------------------------------------------
+ struct rIndepNormalGammaReg_worker : public RcppParallel::Worker {
++  const std::uint64_t job_seed;
+   // --- Inputs ---
+   int n;
+   
+@@ -132,6 +133,7 @@ struct rIndepNormalGammaReg_worker : public RcppParallel::Worker {
+   RcppParallel::RVector<double>       PLSD_r;
+   RcppParallel::RMatrix<double>       loglt_r;
+   RcppParallel::RMatrix<double>       logrt_r;
++  RcppParallel::RMatrix<double>       logU_r;
+   
+   // UB vectors
+   RcppParallel::RVector<double>       lg_prob_factor_r;
+@@ -157,6 +159,7 @@ struct rIndepNormalGammaReg_worker : public RcppParallel::Worker {
+   // --- Constructor ---
+   rIndepNormalGammaReg_worker(
+     int n_,
++    std::uint64_t job_seed_,
+     const RcppParallel::RVector<double>& y_r_,
+     const RcppParallel::RMatrix<double>& x_r_,
+     const RcppParallel::RMatrix<double>& mu_r_,
+@@ -167,6 +170,7 @@ struct rIndepNormalGammaReg_worker : public RcppParallel::Worker {
+     const RcppParallel::RVector<double>& PLSD_r_,
+     const RcppParallel::RMatrix<double>& loglt_r_,
+     const RcppParallel::RMatrix<double>& logrt_r_,
++    const RcppParallel::RMatrix<double>& logU_r_,
+     const RcppParallel::RVector<double>& lg_prob_factor_r_,
+     const RcppParallel::RVector<double>& UB2min_r_,
+     double shape3_, double rate2_,
+@@ -184,9 +188,9 @@ struct rIndepNormalGammaReg_worker : public RcppParallel::Worker {
+     RcppParallel::RVector<double>& disp_out_r_,
+     RcppParallel::RVector<double>& iters_out_r_,
+     RcppParallel::RVector<double>& weight_out_r_)
+-    : n(n_),
++    : job_seed(job_seed_), n(n_),
+       y_r(y_r_), x_r(x_r_), mu_r(mu_r_), P_r(P_r_), alpha_r(alpha_r_), wt_r(wt_r_),
+-      cbars_r(cbars_r_), PLSD_r(PLSD_r_), loglt_r(loglt_r_), logrt_r(logrt_r_),
++      cbars_r(cbars_r_), PLSD_r(PLSD_r_), loglt_r(loglt_r_), logrt_r(logrt_r_), logU_r(logU_r_),
+       lg_prob_factor_r(lg_prob_factor_r_), UB2min_r(UB2min_r_),
+       shape3(shape3_), rate2(rate2_), disp_upper(disp_upper_), disp_lower(disp_lower_),
+       RSS_Min(RSS_Min_), max_New_LL_UB(max_New_LL_UB_), max_LL_log_disp(max_LL_log_disp_),
+@@ -205,6 +209,7 @@ void rIndepNormalGammaReg_worker::operator()(std::size_t begin, std::size_t end)
+   const int l1 = x_r.ncol();
+ 
+   for (std::size_t i = begin; i < end; ++i) {
++    seed_draw(job_seed, i);
+     // Thread-local buffers and views (no shared state)
+     std::vector<double> out_buf(static_cast<std::size_t>(l1), 0.0);
+     RcppParallel::RMatrix<double> out_row(out_buf.data(), 1,  l1);  // 1×l1
+@@ -253,7 +258,7 @@ void rIndepNormalGammaReg_worker::operator()(std::size_t begin, std::size_t end)
+           logrt_r(J_idx, j),
+           loglt_r(J_idx, j),
+           -cbars_r(J_idx, j),
+-          1.0
++          1.0, logU_r(J_idx, j)
+         );
+       }
+ 
+@@ -514,6 +519,9 @@ Rcpp::List  rIndepNormalGammaReg_std(int n,NumericVector y,NumericMatrix x,
+   NumericVector PLSD=Envelope["PLSD"];
+   NumericMatrix loglt=Envelope["loglt"];
+   NumericMatrix logrt=Envelope["logrt"];
++  NumericMatrix logU(logrt.nrow(), logrt.ncol());
++  std::fill(logU.begin(), logU.end(), NA_REAL);
++  if (Envelope.containsElementNamed("logU")) logU = as<NumericMatrix>(Envelope["logU"]);
+   
+   double RSS_Min=UB_list["RSS_Min"];
+   NumericVector UB2min=UB_list["UB2min"];
+@@ -540,7 +548,9 @@ Rcpp::List  rIndepNormalGammaReg_std(int n,NumericVector y,NumericMatrix x,
+   
+ 
+   
++  const auto job_seed = seed_from_R();
+   for(int i=0;i<n;i++){
++    seed_draw(job_seed, i);
+ 
+     Rcpp::checkUserInterrupt();
+     
+@@ -563,7 +573,7 @@ Rcpp::List  rIndepNormalGammaReg_std(int n,NumericVector y,NumericMatrix x,
+       
+       // Simulate from discrete distribution
+       
+-      U=R::runif(0.0, 1.0);
++      U=runif_safe();
+       a2=0;
+       J(0)=0;    
+       while(a2==0){
+@@ -579,7 +589,7 @@ Rcpp::List  rIndepNormalGammaReg_std(int n,NumericVector y,NumericMatrix x,
+             
+       // Simulate for beta
+       
+-      for(int j=0;j<l1;j++){  out(0,j)=rnorm_ct(logrt(J(0),j),loglt(J(0),j),-cbars(J(0),j),1.0);          }
++      for(int j=0;j<l1;j++){  out(0,j)=rnorm_ct(logrt(J(0),j),loglt(J(0),j),-cbars(J(0),j),1.0,logU(J(0),j));          }
+       
+       dispersion=rinvgamma_ct_safe(shape3,rate2,disp_upper,disp_lower);
+       
+@@ -598,7 +608,7 @@ Rcpp::List  rIndepNormalGammaReg_std(int n,NumericVector y,NumericMatrix x,
+       
+     
+       
+-      U2=R::runif(0.0, 1.0);
++      U2=runif_safe();
+       
+       double log_U2=log(U2);
+       NumericVector J_out=J;
+@@ -797,6 +807,9 @@ Rcpp::List rIndepNormalGammaReg_std_parallel(
+   Rcpp::NumericVector PLSD           = Envelope["PLSD"];
+   Rcpp::NumericMatrix loglt          = Envelope["loglt"];
+   Rcpp::NumericMatrix logrt          = Envelope["logrt"];
++  Rcpp::NumericMatrix logU(logrt.nrow(), logrt.ncol());
++  std::fill(logU.begin(), logU.end(), NA_REAL);
++  if (Envelope.containsElementNamed("logU")) logU = as<NumericMatrix>(Envelope["logU"]);
+   double RSS_Min                     = UB_list["RSS_Min"];
+   Rcpp::NumericVector UB2min         = UB_list["UB2min"];
+ 
+@@ -851,6 +864,7 @@ Rcpp::List rIndepNormalGammaReg_std_parallel(
+   RcppParallel::RVector<double> PLSD_r(PLSD);
+   RcppParallel::RMatrix<double> loglt_r(loglt);
+   RcppParallel::RMatrix<double> logrt_r(logrt);
++  RcppParallel::RMatrix<double> logU_r(logU);
+ 
+   RcppParallel::RVector<double> lg_prob_factor_r(lg_prob_factor);
+   RcppParallel::RVector<double> UB2min_r(UB2min);
+@@ -863,10 +877,11 @@ Rcpp::List rIndepNormalGammaReg_std_parallel(
+ 
+ 
+   // Construct worker
++  const auto job_seed = seed_from_R();
+   rIndepNormalGammaReg_worker worker(
+-      n,
++      n, job_seed,
+       y_r, x_r, mu_r, P_r, alpha_r, wt_r,
+-      cbars_r, PLSD_r, loglt_r, logrt_r,
++      cbars_r, PLSD_r, loglt_r, logrt_r, logU_r,
+       lg_prob_factor_r, UB2min_r,
+       shape3, rate2, disp_upper, disp_lower,
+       RSS_Min, max_New_LL_UB, max_LL_log_disp,
+@@ -1446,7 +1461,8 @@ Rcpp::List rIndepNormalGammaReg(
+     Rcpp::Named("iters_out")  = iters_out,
+     Rcpp::Named("weight_out") = weight_out,
+     Rcpp::Named("low")        = low,
+-    Rcpp::Named("upp")        = upp
++    Rcpp::Named("upp")        = upp,
++    Rcpp::Named("Envelope")   = Env3
+   );
+ }  
+   
+diff --git a/src/rNormalGLM.cpp b/src/rNormalGLM.cpp
+index 8705964..13fa9c6 100644
+--- a/src/rNormalGLM.cpp
++++ b/src/rNormalGLM.cpp
+@@ -7,6 +7,7 @@
+ 
+ #include "famfuncs.h"
+ #include "Envelopefuncs.h"
++#include "envelope_refine.h"
+ #include "simfuncs.h"
+ #include "progress_utils.h"
+ 
+@@ -40,6 +41,22 @@ using namespace glmbayes::rng;
+ using namespace glmbayes::progress;
+ 
+ 
++namespace {
++// A finite ceiling bounds rejection work even for unusably loose envelopes.
++constexpr int GLMBAYES_MAX_PROPOSALS_PER_DRAW = 200000;
++
++void check_proposal_limit(const std::shared_ptr<std::atomic<int>>& failure) {
++  const int draw = failure->load(std::memory_order_relaxed);
++  if (draw != 0) {
++    Rcpp::stop("glmbayes: rejection sampler reached %d proposals with zero "
++               "acceptances for draw %d. No draws were returned; inspect "
++               "the envelope before retrying.",
++               GLMBAYES_MAX_PROPOSALS_PER_DRAW, draw);
++  }
++}
++} // namespace
++
++
+ namespace glmbayes {
+ 
+ namespace sim {
+@@ -256,6 +273,7 @@ Rcpp::List glmb_Standardize_Model(
+ // rNormalGLM_worker: parallel sampler with envelope logic
+ //-----------------------------------------------------------------------------
+ struct rNormalGLM_worker : public RcppParallel::Worker {
++  const std::uint64_t job_seed;
+   // --- Inputs ---
+   int n;
+   
+@@ -268,9 +286,12 @@ struct rNormalGLM_worker : public RcppParallel::Worker {
+   
+   // Envelope components as thread-safe handles (no copies)
+   RVector<double> PLSD_r;
++  RVector<double> logPLSD_r;   // normalized mixture weights in log space
++  bool            use_log_sel; // the exponentiated weights underflowed
+   RVector<double> LLconst_r;
+   RMatrix<double> loglt_r;
+   RMatrix<double> logrt_r;
++  RMatrix<double> logU_r;
+   RMatrix<double> cbars_r;
+   
+   
+@@ -290,13 +311,14 @@ struct rNormalGLM_worker : public RcppParallel::Worker {
+   int                   ncol;      // dimensionality
+   
+   // --- Optional test controls ---
+-  // shared atomic flag: set to 1 by any thread if it hits the cap
++  // Shared failure: zero until a worker records its one-based draw index.
+   std::shared_ptr<std::atomic<int>> any_maxdraw_flag; // default nullptr (no reporting)
+   int                   max_draws;                   // -1 => no per-index cap
+   
+   // --- Constructor ---
+   rNormalGLM_worker(
+     int n_,
++    std::uint64_t job_seed_,
+     const RVector<double>& y_r_,
+     const RMatrix<double>& x_r_,
+     const RMatrix<double>& mu_r_,
+@@ -305,9 +327,12 @@ struct rNormalGLM_worker : public RcppParallel::Worker {
+     const RVector<double>& wt_r_,
+     
+     const RcppParallel::RVector<double>& PLSD_r_,
++    const RcppParallel::RVector<double>& logPLSD_r_,
++    bool use_log_sel_,
+     const RcppParallel::RVector<double>& LLconst_r_,
+     const RcppParallel::RMatrix<double>& loglt_r_,
+     const RcppParallel::RMatrix<double>& logrt_r_,
++    const RcppParallel::RMatrix<double>& logU_r_,
+     const RcppParallel::RMatrix<double>& cbars_r_,
+     
+     // const arma::vec& PLSD_,
+@@ -323,11 +348,12 @@ struct rNormalGLM_worker : public RcppParallel::Worker {
+     std::shared_ptr<std::atomic<int>> any_maxdraw_flag_ = nullptr, // optional shared flag
+     int max_draws_ = -1                                              // optional per-index cap
+   )
+-    : n(n_),
++    : job_seed(job_seed_), n(n_),
+       y_r(y_r_), x_r(x_r_), mu_r(mu_r_), P_r(P_r_),
+       alpha_r(alpha_r_), wt_r(wt_r_),
+-      PLSD_r(PLSD_r_), LLconst_r(LLconst_r_),
+-      loglt_r(loglt_r_), logrt_r(logrt_r_), cbars_r(cbars_r_),
++      PLSD_r(PLSD_r_), logPLSD_r(logPLSD_r_), use_log_sel(use_log_sel_),
++      LLconst_r(LLconst_r_),
++      loglt_r(loglt_r_), logrt_r(logrt_r_), logU_r(logU_r_), cbars_r(cbars_r_),
+       // PLSD(PLSD_), LLconst(LLconst_),
+       // loglt(loglt_), logrt(logrt_), cbars(cbars_),
+       family(family_), link(link_), progbar(progbar_),
+@@ -395,6 +421,7 @@ void rNormalGLM_worker::operator()(std::size_t begin, std::size_t end) {
+ 
+   // Main loop over indices
+   for (std::size_t i = begin; i < end; ++i) {
++    seed_draw(job_seed, i);
+ 
+     draws[i] = 1.0;
+ 
+@@ -404,26 +431,47 @@ void rNormalGLM_worker::operator()(std::size_t begin, std::size_t end) {
+     double a1 = 0.0;
+ 
+     while (a1 == 0.0) {
++      // Workers never call the R API on failure. Cancel the entire job;
++      // the main thread reports the failure after parallelFor joins.
++      if (any_maxdraw_flag &&
++          any_maxdraw_flag->load(std::memory_order_relaxed) != 0) return;
++      if (max_draws > 0 && draws[i] > max_draws) {
++        if (any_maxdraw_flag) {
++          int expected = 0;
++          any_maxdraw_flag->compare_exchange_strong(
++              expected, static_cast<int>(i) + 1, std::memory_order_relaxed);
++        }
++        return;
++      }
+ 
+ 
+       // 1) slice selection
+       //double U  = R::runif(0.0, 1.0)
+       double U = runif_safe();
+-      double a2 = 0.0;
+       int    J  = 0;
+-      while (a2 == 0.0) {
+-        if (U <= PLSD[J]) {
+-          //if (U <= PLSD2[J]) {
+-          a2 = 1.0;
+-        } else {
+-          U -= PLSD[J];
+-          ++J;
++      const int n_cells_sel = (int) PLSD.n_elem;
++      if (use_log_sel) {
++        // The exponentiated weights underflowed; select from the log weights,
++        // which is the same categorical distribution computed exactly.
++        J = glmbayes::env::select_cell_log(&logPLSD_r[0], n_cells_sel, U);
++      } else {
++        // Original scan, bit for bit.  Bounded at the last cell: a zero weight
++        // would otherwise subtract nothing and increment past the end of the
++        // array.  Unreachable when no weight is zero.
++        double a2 = 0.0;
++        while (a2 == 0.0 && J < n_cells_sel - 1) {
++          if (U <= PLSD[J]) {
++            a2 = 1.0;
++          } else {
++            U -= PLSD[J];
++            ++J;
++          }
+         }
+       }
+ 
+       // 2) draw truncated‐normal candidates
+       for (int j = 0; j < l1; ++j) {
+-        out(i, j) = rnorm_ct(logrt(J, j),loglt(J, j),-cbars(J, j), 1.0 );
++        out(i, j) = rnorm_ct(logrt(J, j),loglt(J, j),-cbars(J, j), 1.0, logU_r(J, j));
+         //  out(i, j) = rnorm_ct(logrt2(J, j),loglt2(J, j),-cbars2(J, j), 1.0 );
+       }
+ 
+@@ -573,6 +621,9 @@ void rNormalGLM_worker::operator()(std::size_t begin, std::size_t end) {
+           //            testll2 = f2_gamma_arma(btemp,y,x,mu,P,alpha,wt,0);
+           //                        Rcpp::Rcout << "arma version: " << testll2  << "\n";
+         }
++        else if (fam2 == "cmb") {
++          testll2 = f2_cmb_rmat(btemp_r,y_r,x_r,mu_r,P_r,alpha_r,wt_r,0);
++        }
+         else { // gaussian
+           //            testll = f2_gaussian(btemp,y,x,mu,P,alpha,wt);
+           //            testll = f2_gaussian_arma(btemp,y,x,mu,P,alpha,wt);
+@@ -604,42 +655,7 @@ void rNormalGLM_worker::operator()(std::size_t begin, std::size_t end) {
+ 
+           // keep existing behavior: increment trial count
+           draws[i] = draws[i] + 1.0;
+-
+-          // effective cap: use max_draws when provided, otherwise use legacy 1000 for diagnostic
+-          //            int cap = (max_draws >= 0) ? max_draws : 1000;
+-
+-          // print exactly once when we hit the cap (use your existing mutex for thread-safety)
+-          //            if (static_cast<int>(draws[i]) == cap) {
+-          if (max_draws>0 && static_cast<int>(draws[i]) >= max_draws) {
+-            tbb::mutex::scoped_lock lock(f2_mutex);
+-            Rcpp::Rcout << "[WARN] index=" << i << " reached draws=" << draws[i]
+-                        << " (cap=" << max_draws << ") — forcing a1=1.0 to avoid infinite loop\n";
+-
+-            Rcpp::Rcout << "[DEBUG] Acceptance test breakdown:\n";
+-            Rcpp::Rcout << "  LLconst[" << J << "] = " << LLconst[J] << "\n";
+-            Rcpp::Rcout << "  testtemp2(0,0) = " << testtemp2(0,0) << "\n";
+-            Rcpp::Rcout << "  log(U2) = " << std::log(U2) << "\n";
+-            Rcpp::Rcout << "  testll2[0] = " << testll2[0] << "\n";
+-            Rcpp::Rcout << "  test = " << test << "\n";
+-
+-
+-          }
+-
+-
+-
+-          // when cap reached or exceeded, set the atomic flag (if provided) and force exit
+-          //            if (static_cast<int>(draws[i]) >= cap) {
+-          if (max_draws>0 && static_cast<int>(draws[i]) >= max_draws) {
+-            if (any_maxdraw_flag) {
+-              any_maxdraw_flag->store(1, std::memory_order_relaxed);
+-            }
+-            a1 = 1.0;   // force acceptance / break out of while loop
+-          }
+-
+         }
+-
+-
+-
+       }
+ 
+ 
+@@ -730,74 +746,9 @@ Rcpp::List run_rcppparallel_pilot(
+   
+   // inspect the flag after the test
+   int any_hit_after_test = any_flag->load(std::memory_order_relaxed);
+-  
+-  if (any_hit_after_test != 0) {
+-    Rcpp::Rcout
+-    << "[WARN] One or more indices reached the max_draws cap during the test phase "
+-    << "with zero accepted draws.\n"
+-    << "This indicates that the envelope was insufficiently tight overall.\n"
+-    << "Complete non-acceptance is a strong indicator of posterior non-normality.\n"
+-    << "\n"
+-    << "Important note: Once you continue, the full run has no max_draws cap.\n"
+-    << "Because this code uses RcppParallel, the run cannot be interrupted.\n"
+-    << "If acceptance remains zero, the simulation may appear to 'hang' indefinitely.\n"
+-    << "\n"
+-    << "Recommended actions:\n"
+-    << "  - Set use_opencl = TRUE or increase the requested sample size (number of draws);\n"
+-    << "    both of these lead EnvelopeOpt to favor tighter envelopes, though they do not guarantee it.\n"
+-    << "  - Try a different Gridtype setting to force a tighter envelope.\n"
+-    << "  - Strengthen the prior to stabilize behavior in the tails.\n"
+-    << std::endl;
+-    
+-    // interactive prompt (use base::interactive(); Rf_interactive is not portable on Windows)
+-    Rcpp::Function r_interactive("interactive");
+-    Rcpp::Shield<SEXP> interactive_sexp(r_interactive());
+-    bool is_interactive = Rcpp::as<bool>(interactive_sexp);
+-    
+-    if (is_interactive) {
+-      Rcpp::Function readline("readline");
+-      std::string prompt = "Enter 1 to continue full run, 2 to stop and return partial results: ";
+-      
+-      while (true) {
+-        Rcpp::Shield<SEXP> prompt_sexp(Rf_mkString(prompt.c_str()));
+-        Rcpp::Shield<SEXP> ans_sexp(readline(prompt_sexp));
+-        std::string ans = Rcpp::as<std::string>(ans_sexp);
+-        // trim whitespace
+-        auto ltrim = [](std::string &s) {
+-          s.erase(s.begin(), std::find_if(s.begin(), s.end(),
+-                          [](unsigned char ch){ return !std::isspace(ch); }));
+-        };
+-        auto rtrim = [](std::string &s) {
+-          s.erase(std::find_if(s.rbegin(), s.rend(),
+-                               [](unsigned char ch){ return !std::isspace(ch); }).base(), s.end());
+-        };
+-        ltrim(ans); rtrim(ans);
+-        
+-        if (ans == "1" || ans == "continue" || ans == "y" || ans == "yes") {
+-          Rcpp::Rcout << "[INFO] User chose to continue full run.\n";
+-          break; // fall through to construct/run full worker
+-        } else if (ans == "2" || ans == "stop" || ans == "n" || ans == "no") {
+-          Rcpp::Rcout << "[INFO] User chose to stop. Returning partial test results.\n";
+-          return make_rcppparallel_pilot_result(
+-            out,
+-            draws,
+-            any_hit_after_test,
+-            true,
+-            std::string("Stopped by user after test"),
+-            false,
+-            NA_REAL,
+-            NA_REAL
+-          );
+-        } else {
+-          Rcpp::Rcout << "Invalid input. Please enter 1 (continue) or 2 (stop).\n";
+-        }
+-      } // end prompt loop
+-    } else {
+-      // Non-interactive: proceed automatically
+-      Rcpp::Rcout << "[NOTE] Non-interactive session: proceeding automatically.\n";
+-    }
+-  }
+-  
++
++  check_proposal_limit(any_flag);
++
+   // --- runtime estimate based on single-sample pilot ---
+   int candidates_used = static_cast<int>(draws[0]);     // from pilot sample
+   double est_total_sec = std::numeric_limits<double>::quiet_NaN();
+@@ -863,6 +814,7 @@ Rcpp::List run_rcppparallel_pilot(
+   // --- calibration run for m_stage draws ---
+   auto t_cal0 = std::chrono::steady_clock::now();
+   RcppParallel::parallelFor(0, m_stage, worker);
++  check_proposal_limit(any_flag);
+   auto t_cal1 = std::chrono::steady_clock::now();
+   double cal_elapsed_sec = std::chrono::duration<double>(t_cal1 - t_cal0).count();
+   
+@@ -1061,8 +1013,36 @@ List rNormalGLM_std_parallel(
+   
+ 
+   Rcpp::NumericVector PLSD    = Envelope["PLSD"];
++  // Use the log-space selector only when the exponentiated representation has
++  // actually failed: a zero weight whose log weight is still finite.  If zeros
++  // are present and logPLSD is missing or mis-sized, error -- falling back to
++  // the ordinary scan would run it over zero weights.
++  bool use_log_sel = false;
++  {
++    bool has_zero = false;
++    for (int i = 0; i < PLSD.size(); ++i) if (PLSD[i] == 0.0) { has_zero = true; break; }
++    if (has_zero) {
++      if (!Envelope.containsElementNamed("logPLSD"))
++        Rcpp::stop("Envelope has zero mixture weights but no logPLSD; "
++                   "cannot select a component safely.");
++      Rcpp::NumericVector lp = Envelope["logPLSD"];
++      if (lp.size() != PLSD.size())
++        Rcpp::stop("logPLSD length does not match PLSD.");
++      for (int i = 0; i < PLSD.size(); ++i)
++        if (PLSD[i] == 0.0 && R_finite(lp[i])) { use_log_sel = true; break; }
++    }
++  }
++  Rcpp::NumericVector logPLSD(PLSD.size());
++  if (Envelope.containsElementNamed("logPLSD")) {
++    logPLSD = Rcpp::as<Rcpp::NumericVector>(Envelope["logPLSD"]);
++  } else {
++    for (int i = 0; i < PLSD.size(); ++i) logPLSD[i] = std::log(PLSD[i]);
++  }
+   Rcpp::NumericMatrix loglt   = Envelope["loglt"];
+   Rcpp::NumericMatrix logrt   = Envelope["logrt"];
++  Rcpp::NumericMatrix logU(logrt.nrow(), logrt.ncol());
++  std::fill(logU.begin(), logU.end(), NA_REAL);
++  if (Envelope.containsElementNamed("logU")) logU = as<NumericMatrix>(Envelope["logU"]);
+   Rcpp::NumericMatrix cbars   = Envelope["cbars"];
+   Rcpp::NumericVector LLconst = Envelope["LLconst"];
+ 
+@@ -1100,46 +1080,45 @@ List rNormalGLM_std_parallel(
+   auto any_flag = std::make_shared<std::atomic<int>>(0);
+   
+   
+-  double p_max_draws = 0.001;
+-  double p_accept = 1.0 / E_draws;
+-  
+-  double max_draws = std::ceil(std::log(p_max_draws) / std::log(1.0 - p_accept));
+-  
+-
+-  
+   RVector<double> PLSD_r(PLSD);
++  RVector<double> logPLSD_r(logPLSD);
+   RVector<double> LLconst_r(LLconst);
+   RMatrix<double> loglt_r(loglt);
+   RMatrix<double> logrt_r(logrt);
++  RMatrix<double> logU_r(logU);
+   RMatrix<double> cbars_r(cbars);
+   
+   
+ 
+ 
++  const auto job_seed = seed_from_R();
+   rNormalGLM_worker test_worker(
+-      n, y_r, x_r, mu_r, P_r, alpha_r, wt_r,
+-      PLSD_r, LLconst_r, loglt_r, logrt_r, cbars_r,
++      n, job_seed, y_r, x_r, mu_r, P_r, alpha_r, wt_r,
++      PLSD_r, logPLSD_r, use_log_sel, LLconst_r, loglt_r, logrt_r, logU_r, cbars_r,
+       family, link, progbar, out_r, draws_r,
+-      any_flag, max_draws
++      any_flag, GLMBAYES_MAX_PROPOSALS_PER_DRAW
+   );
+   
+   
+ 
+   rNormalGLM_worker worker(
+-      n,
++      n, job_seed,
+       y_r, x_r, mu_r, P_r,
+       alpha_r, wt_r,
+-      PLSD_r, LLconst_r, loglt_r, logrt_r, cbars_r,
++      PLSD_r, logPLSD_r, use_log_sel, LLconst_r, loglt_r, logrt_r, logU_r, cbars_r,
+       family, link,
+       progbar,
+       out_r, draws_r,
+       any_flag,    // shared atomic flag
+-      -1
++      // Finite ceiling.  The real worker used to run with -1 (uncapped): if
++      // the envelope never accepts, the run cannot be interrupted and appears
++      // to hang forever.  See GLMBAYES_MAX_PROPOSALS_PER_DRAW.
++      (int) GLMBAYES_MAX_PROPOSALS_PER_DRAW
+   );
+   
+   
+ 
+-  if (p >= 14) {
++  if (p >= 14 && n > 0) {
+    
+    auto pilot_res = run_rcppparallel_pilot(
+      n,
+@@ -1163,6 +1142,8 @@ List rNormalGLM_std_parallel(
+ 
+   
+   RcppParallel::parallelFor(0, n, worker);  // grain size == n → serial chunk
++
++  check_proposal_limit(any_flag);
+ //      worker(0, n);  // Call serially
+ 
+ 
+@@ -1202,7 +1183,7 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
+   
+   
+   
+-  //RNGScope scope;
++  const auto job_seed = seed_from_R();
+   int l1 = mu.nrow();
+   //  int l2=pow(3,l1);
+   
+@@ -1222,8 +1203,34 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
+   //out(0,0)=1;
+   
+   NumericVector PLSD=Envelope["PLSD"];
++  // See the note in the parallel path: log-space selection only on genuine
++  // representation underflow, and no silent fallback if logPLSD is missing.
++  bool use_log_sel = false;
++  {
++    bool has_zero = false;
++    for (int i = 0; i < PLSD.size(); ++i) if (PLSD[i] == 0.0) { has_zero = true; break; }
++    if (has_zero) {
++      if (!Envelope.containsElementNamed("logPLSD"))
++        Rcpp::stop("Envelope has zero mixture weights but no logPLSD; "
++                   "cannot select a component safely.");
++      NumericVector lp = Envelope["logPLSD"];
++      if (lp.size() != PLSD.size())
++        Rcpp::stop("logPLSD length does not match PLSD.");
++      for (int i = 0; i < PLSD.size(); ++i)
++        if (PLSD[i] == 0.0 && R_finite(lp[i])) { use_log_sel = true; break; }
++    }
++  }
++  NumericVector logPLSD(PLSD.size());
++  if (Envelope.containsElementNamed("logPLSD")) {
++    logPLSD = Rcpp::as<NumericVector>(Envelope["logPLSD"]);
++  } else {
++    for (int i = 0; i < PLSD.size(); ++i) logPLSD[i] = std::log(PLSD[i]);
++  }
+   NumericMatrix loglt=Envelope["loglt"];
+   NumericMatrix logrt=Envelope["logrt"];
++  NumericMatrix logU(logrt.nrow(), logrt.ncol());
++  std::fill(logU.begin(), logU.end(), NA_REAL);
++  if (Envelope.containsElementNamed("logU")) logU = as<NumericMatrix>(Envelope["logU"]);
+   NumericMatrix cbars=Envelope["cbars"];
+   NumericVector LLconst=Envelope["LLconst"]; 
+   
+@@ -1248,6 +1255,7 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
+   
+   if(progbar==1){ Rcpp::Rcout << "Starting Simulation:" << std::endl;  };
+   for(int i=0;i<n;i++){
++    seed_draw(job_seed, i);
+     
+     Rcpp::checkUserInterrupt();
+     if(progbar==1){
+@@ -1259,18 +1267,29 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
+     a1=0;
+     draws(i)=1;
+     while(a1==0){
++      if (static_cast<int>(draws(i)) % 1024 == 0) Rcpp::checkUserInterrupt();
++      if (draws(i) > GLMBAYES_MAX_PROPOSALS_PER_DRAW) {
++        Rcpp::stop("glmbayes: the rejection sampler reached %d proposals "
++                   "with zero acceptances for draw %d of %d. The envelope is "
++                   "too loose for this model, so no draws were returned. "
++                   "No approximate or force-accepted values were produced.",
++                   (int) GLMBAYES_MAX_PROPOSALS_PER_DRAW, i + 1, n);
++      }
+       
+-      U=R::runif(0.0, 1.0);
+-      a2=0;
+-      J(i)=0;    
+-      while(a2==0){
+-        if(U<=PLSD(J(i))) a2=1;
+-        if(U>PLSD(J(i))){ 
+-          U=U-PLSD(J(i));
+-          J(i)=J(i)+1;
+-          
++      U=runif_safe();
++      J(i)=0;
++      const int n_cells_sel = PLSD.size();
++      if (use_log_sel) {
++        J(i) = glmbayes::env::select_cell_log(&logPLSD[0], n_cells_sel, U);
++      } else {
++        a2=0;
++        while(a2==0 && J(i) < n_cells_sel - 1){
++          if(U<=PLSD(J(i))) a2=1;
++          if(U>PLSD(J(i))){
++            U=U-PLSD(J(i));
++            J(i)=J(i)+1;
++          }
+         }
+-        //a2=1; 
+       }
+       
+       
+@@ -1278,7 +1297,7 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
+       
+       for(int j=0;j<l1;j++){  
+         
+-        out(i,j)=rnorm_ct(logrt(J(i),j),loglt(J(i),j),-cbars(J(i),j),1.0);    
++        out(i,j)=rnorm_ct(logrt(J(i),j),loglt(J(i),j),-cbars(J(i),j),1.0,logU(J(i),j));
+         
+         
+       }
+@@ -1286,7 +1305,7 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
+       outtemp=out(i,_);
+       cbartemp=cbars(J(i),_);
+       testtemp2=outtemp2 * trans(cbartemp2);
+-      U2=R::runif(0.0, 1.0);
++      U2=runif_safe();
+       btemp2=trans(outtemp2);    
+       
+       // Need to modify to call correct f2 function based on family and link
+@@ -1333,6 +1352,10 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
+         testll=f2_gaussian(btemp,y, x,mu,P,alpha,wt);
+       }
+       
++      if(family2=="cmb"){
++        testll=f2_cmb(btemp,y, x,mu,P,alpha,wt,0);
++      }
++
+       ////
+       
+       
+@@ -1341,7 +1364,7 @@ Rcpp::List  rNormalGLM_std(int n,NumericVector y,NumericMatrix x,
+       
+       if(test>=0) 
+       {        a1=1;      }
+-      if(test<0) draws(i)=draws(i)+1;
++      else draws(i)=draws(i)+1;
+       
+     }
+     
+@@ -1417,7 +1440,18 @@ Rcpp::List rNormalGLM(int n,NumericVector y,NumericMatrix x,
+   NumericMatrix x2b(clone(x));
+   arma::mat P2(P.begin(), P.nrow(), P.ncol(), false);
+   
+-  if(family=="poisson"||family=="binomial")dispersion2=1;
++  // CMB has no dispersion parameter; wt carries the trial counts m and must
++  // not be divided.  Without this an explicitly supplied dispersion would
++  // silently rescale every m.
++  if (!(family=="binomial" || family=="quasibinomial" ||
++        family=="poisson"  || family=="quasipoisson"  ||
++        family=="Gamma"    || family=="gaussian"      ||
++        family=="cmb"))
++    Rcpp::stop("rNormalGLM: unsupported family '" + family + "'. The accept "
++               "step has no branch for it and would score draws with the "
++               "wrong likelihood.");
++
++  if(family=="poisson"||family=="binomial"||family=="cmb")dispersion2=1;
+   else dispersion2=dispersion;
+   
+   int i;  // This can be likely be shifted towards top of function
+@@ -1561,11 +1595,13 @@ Rcpp::List rNormalGLM(int n,NumericVector y,NumericMatrix x,
+   // for iid sampling (default 1000).
+   if(n==1){
+     Envelope=EnvelopeBuild(bstar2_temp, A_temp,y, x2_temp,mu2_temp,
+-                             P2_temp,alpha,wt2,family,link,Gridtype, n,n_envopt,false,use_opencl,verbose);
++                             P2_temp,alpha,wt2,family,link,Gridtype, n,n_envopt,false,use_opencl,verbose,
++                             /*refine*/ true, /*refine_maxit*/ 60);
+   }
+   if(n>1){
+     Envelope=EnvelopeBuild(bstar2_temp, A_temp,y, x2_temp,mu2_temp,
+-                             P2_temp,alpha,wt2,family,link,Gridtype, n,n_envopt,true,use_opencl,verbose);
++                             P2_temp,alpha,wt2,family,link,Gridtype, n,n_envopt,true,use_opencl,verbose,
++                             /*refine*/ true, /*refine_maxit*/ 60);
+   }
+   
+   //  Rcpp::Rcout << "Finished Envelope Creation:" << std::endl;
+@@ -1689,4 +1725,3 @@ Rcpp::List rNormalGLM(int n,NumericVector y,NumericMatrix x,
+ 
+ }
+ }
+-
+diff --git a/src/rNormalReg.cpp b/src/rNormalReg.cpp
+index af23b8e..b2e7c79 100644
+--- a/src/rNormalReg.cpp
++++ b/src/rNormalReg.cpp
+@@ -203,7 +203,7 @@ Rcpp::List rNormalReg(int n,NumericVector y,NumericMatrix x,
+     Rcpp::Named("x")=x,
+     Rcpp::Named("fit")=fit,
+     Rcpp::Named("iters")=draws,
+-    Rcpp::Named("Envelope")=NULL
++    Rcpp::Named("Envelope")=R_NilValue
+ //  ,  Rcpp::Named("loglike")=LL
+   );  
+   
+diff --git a/src/rng_utils.cpp b/src/rng_utils.cpp
+index 7671fb2..0726485 100644
+--- a/src/rng_utils.cpp
++++ b/src/rng_utils.cpp
+@@ -5,9 +5,10 @@
+ #include <Rmath.h>   // libR Mathlib: Rf_pgamma, Rf_qgamma
+ #include "rng_utils.h"
+ 
+-// Thread-local RNG and distribution
+-thread_local std::mt19937 safe_rng_engine(std::random_device{}());
+-thread_local std::uniform_real_distribution<> safe_rng_dist(0.0, 1.0);
++namespace {
++// Storage is thread-local; stream identity is assigned per output row.
++thread_local std::mt19937_64 safe_rng_engine;
++}
+ 
+ using namespace glmbayes::rng;
+ 
+@@ -98,9 +99,31 @@ namespace glmbayes {
+ 
+ namespace rng {
+ 
+-// Core sampling function
++std::uint64_t seed_from_R() {
++  // Only this function touches R's RNG. Exactly two draws per sampler job,
++  // regardless of thread count, rejection work, or pilot/calibration size.
++  const auto lo = static_cast<std::uint32_t>(::unif_rand() * 4294967296.0);
++  const auto hi = static_cast<std::uint32_t>(::unif_rand() * 4294967296.0);
++  return (static_cast<std::uint64_t>(hi) << 32) | lo;
++}
++
++void seed_draw(std::uint64_t job_seed, std::uint64_t draw_index) {
++  std::seed_seq seed {
++    static_cast<std::uint32_t>(job_seed),
++    static_cast<std::uint32_t>(job_seed >> 32),
++    static_cast<std::uint32_t>(draw_index),
++    static_cast<std::uint32_t>(draw_index >> 32),
++    std::uint32_t(0x676c6d62)
++  };
++  safe_rng_engine.seed(seed);
++}
++
+ double runif_safe() {
+-  return safe_rng_dist(safe_rng_engine);
++  // Explicit 53-bit conversion avoids implementation-dependent behavior of
++  // uniform_real_distribution. Exclude both endpoints for inverse CDFs.
++  std::uint64_t bits;
++  do { bits = safe_rng_engine() >> 11; } while (bits == 0);
++  return static_cast<double>(bits) * (1.0 / 9007199254740992.0);
+ }
+ 
+ 
+diff --git a/src/rng_utils.h b/src/rng_utils.h
+index 5b89170..70561ef 100644
+--- a/src/rng_utils.h
++++ b/src/rng_utils.h
+@@ -40,11 +40,18 @@
+ #ifndef RNG_UTILS_H
+ #define RNG_UTILS_H
+ 
++#include <cstdint>
++
+ namespace glmbayes{
+ 
+ namespace rng {
+ 
+-// Thread-safe uniform RNG [0, 1)
++// Draw a job key from R's RNG on the main thread, inside an RNGScope.
++std::uint64_t seed_from_R();
++// Reset the current thread's stream for one output row. Workers share the
++// immutable job key; stream identity depends on the row, never the thread.
++void seed_draw(std::uint64_t job_seed, std::uint64_t draw_index);
++// Thread-safe uniform RNG (0, 1), used only after seed_draw().
+ double runif_safe();
+ 
+ double rinvgamma_ct_safe(double shape,
+@@ -55,6 +62,9 @@ double rinvgamma_ct_safe(double shape,
+ 
+ 
+ double  rnorm_ct(double lgrt,double lglt,double mu,double sigma);
++// The interval mass preserves both boundaries when a complementary tail
++// rounds to zero. Envelope samplers should use this overload.
++double rnorm_ct(double lgrt, double lglt, double mu, double sigma, double log_mass);
+ 
+ double rinvgamma_ct(double shape,double rate,double disp_upper,double disp_lower);
+ 
+diff --git a/src/rnorm_ct.cpp b/src/rnorm_ct.cpp
+index dbec2da..144b953 100644
+--- a/src/rnorm_ct.cpp
++++ b/src/rnorm_ct.cpp
+@@ -9,6 +9,7 @@
+ // [[Rcpp::depends(RcppArmadillo)]]
+ 
+ #include <math.h>
++#include <algorithm>
+ #include "rng_utils.h"
+ 
+ 
+@@ -37,39 +38,31 @@ double safe_qnorm_logp(double logp, double mu, double sigma, bool lower_tail) {
+ namespace glmbayes {
+ namespace rng {
+ 
+-    double rnorm_ct(double lgrt, double lglt, double mu, double sigma) {
+-  double U = 0;
+-  double out = 0;
+-  
+-  if (lgrt >= lglt) {
+-    U = runif_safe();
+-    
+-    // u1 = 1 - exp(lgrt)  →  -expm1(lgrt)
+-    double u1   = -std::expm1(lgrt);
+-    double lgu1 = std::log(u1);
+-    
+-    // log(1 - exp(lgu1 - lglt)) → log(-expm1(lgu1 - lglt))
+-    double lgU2 = std::log(U) + lglt + std::log(-std::expm1(lgu1 - lglt));
+-    double lgU3 = lgU2 + std::log1p(std::exp(lgu1 - lgU2));
+-    
+-    out = safe_qnorm_logp(lgU3, mu, sigma, true);
+-    
+-  } else {
+-    U = runif_safe();
+-    
+-    // e1mu2 = 1 - exp(lglt) → -expm1(lglt)
+-    double e1mu2  = -std::expm1(lglt);
+-    double lg1mu2 = std::log(e1mu2);
+-    
+-    // log(1 - exp(lg1mu2 - lgrt)) → log(-expm1(lg1mu2 - lgrt))
+-    double lgU2 = std::log(U) + lgrt + std::log(-std::expm1(lg1mu2 - lgrt));
+-    double lgU3 = lgU2 + std::log1p(std::exp(lg1mu2 - lgU2));
+-    
+-    out = safe_qnorm_logp(lgU3, mu, sigma, false);
+-  }
+-  
+-  return out;
++// Compatibility for callers with only the two tail probabilities. These
++// cannot encode both endpoints in extreme tails; new envelopes supply logU.
++double rnorm_ct(double lgrt, double lglt, double mu, double sigma) {
++  const bool lower = lgrt >= lglt;
++  const double anchor = lower ? lglt : lgrt;
++  const double opposite = lower ? lgrt : lglt;
++  const double other_endpoint = std::log(-std::expm1(opposite));
++  const double log_mass = anchor + std::log(-std::expm1(other_endpoint - anchor));
++  if (std::isnan(log_mass)) return R_NaN;
++  return rnorm_ct(lgrt, lglt, mu, sigma, log_mass);
+ }
+ 
++double rnorm_ct(double lgrt, double lglt, double mu, double sigma, double log_mass) {
++  if (std::isnan(log_mass)) return rnorm_ct(lgrt, lglt, mu, sigma);
++  const bool lower = lgrt >= lglt;
++  const double anchor = lower ? lglt : lgrt;
++  // Subtract U times the interval mass from the larger endpoint probability,
++  // using the stable tail. Never recover an endpoint by complementing a tail
++  // that may already have rounded to zero (e.g. pnorm(100, log.p=TRUE)).
++  double U;
++  do { U = runif_safe(); } while (U == 0.0);
++  const double fraction = std::exp(std::min(0.0, log_mass - anchor));
++  const double logp = anchor + std::log1p(-U * fraction);
++  return safe_qnorm_logp(logp, mu, sigma, lower);
+ }
+-}
+\ No newline at end of file
++
++} // namespace rng
++} // namespace glmbayes
+diff --git a/tests/testthat/test-cmb-public.R b/tests/testthat/test-cmb-public.R
+new file mode 100644
+index 0000000..0103a32
+--- /dev/null
++++ b/tests/testthat/test-cmb-public.R
+@@ -0,0 +1,44 @@
++# Generated/toy inputs only; independent finite-support probability calculation.
++test_that('CMB likelihood and derivatives agree with direct finite sums', {
++  m <- c(4, 7, 5, 8); y <- c(0, 3, 5, 2)
++  X <- cbind(1, c(-1, -.2, .4, 1))
++  a <- cmb_augment(X, y, m)
++  ff <- glmbayes:::glmbfamfunc(cmb())
++  mu <- matrix(0, 3, 1); P <- diag(3)/5
++  direct <- function(b) {
++    theta <- as.vector(X %*% b[1:2]); nu <- b[3]
++    ll <- vapply(seq_along(y), function(i) {
++      k <- 0:m[i]; lw <- theta[i]*k + nu*lchoose(m[i], k)
++      theta[i]*y[i] + nu*lchoose(m[i], y[i]) - max(lw) - log(sum(exp(lw-max(lw))))
++    }, numeric(1))
++    -sum(ll) + .5*as.numeric(crossprod(b, P %*% b))
++  }
++  for (nu in c(-.4, .7, 1, 2)) {
++    b <- c(-.3, .5, nu)
++    actual <- ff$f2(b,a$y,a$x,mu,P,a$offset,a$weights)
++    expect_equal(as.numeric(actual),direct(b),tolerance=1e-10)
++    numerical <- vapply(seq_along(b),function(j) {
++      delta <- rep(0,3); delta[j] <- 1e-6
++      (direct(b+delta)-direct(b-delta))/2e-6
++    },numeric(1))
++    expect_equal(as.numeric(ff$f3(b,a$y,a$x,mu,P,a$offset,a$weights)),numerical,tolerance=1e-6)
++  }
++  b <- c(-.3,.5,1)
++  binomial <- -sum(dbinom(y,m,plogis(X %*% b[1:2]),log=TRUE)) + .5*sum(b*(P%*%b))
++  expect_equal(direct(b),as.numeric(binomial),tolerance=1e-10)
++})
++
++test_that('fitted CMB means integrate the distribution for each draw', {
++  X <- cbind(1,c(-1,0,1)); m <- c(4,6,8)
++  a <- cmb_augment(X,c(0,3,7),m)
++  b <- rbind(c(-.2,.4,1),c(-.2,.4,.6))
++  object <- list(family=cmb(),x=a$x,prior.weights=a$weights,coefficients=b)
++  expected <- t(vapply(seq_len(nrow(b)),function(j) vapply(seq_along(m),function(i) {
++    k <- 0:m[i]; lw <- sum(X[i,]*b[j,1:2])*k+b[j,3]*lchoose(m[i],k)
++    w <- exp(lw-max(lw)); sum(k*w)/sum(w)
++  },numeric(1)),numeric(3)))
++  expect_equal(cmb_fitted(object,'count'),expected)
++  expect_equal(cmb_fitted(object,'proportion'),sweep(expected,2,m,'/'))
++  expect_equal(as.numeric(cmb_fitted(object)[1,]),as.numeric(plogis(X%*%b[1,1:2])))
++  expect_equal(unname(cmb_nu(object)),matrix(c(1,.6),2,3))
++})
+diff --git a/tests/testthat/test-envelope-refinement.R b/tests/testthat/test-envelope-refinement.R
+new file mode 100644
+index 0000000..b38b4f3
+--- /dev/null
++++ b/tests/testthat/test-envelope-refinement.R
+@@ -0,0 +1,37 @@
++# A Gaussian residual target yields an affine fixed-point equation. Starting
++# away from its root exposes the stiff unsplit-axis failure without sampling.
++quadratic_envelope <- function(curvature, center = 1, grid = 4L) {
++  p <- length(curvature)
++  glmbayes:::EnvelopeBuild_cpp_export(
++    bStar = matrix(rep(center,p),p,1), A = diag(curvature,p),
++    y = 0, x = matrix(0,1,p), mu = matrix(0,p,1), P = diag(curvature,p),
++    alpha = 0, wt = 1, family = 'gaussian', link = 'identity',
++    Gridtype = grid, n = 1L, n_envopt = 1L,
++    sortgrid = FALSE, use_opencl = FALSE, verbose = FALSE)
++}
++
++test_that('Newton refinement resolves stiff unsplit axes', {
++  E <- quadratic_envelope(c(10,1000))
++  d <- E$refinement
++  expect_true(d$accelerated)
++  expect_true(d$converged)
++  expect_lte(d$iterations,5)
++  expect_lt(d$residual,1e-6)
++  expect_equal(as.vector(E$thetabars),c(0,0),tolerance=1e-6)
++  expect_lte(d$log_mass_final,d$log_mass_initial)
++  expect_equal(E$PLSD,1)
++})
++
++test_that('a fixed point requires no update passes', {
++  E <- quadratic_envelope(c(2,4),center=0)
++  expect_equal(E$refinement$iterations,0L)
++  expect_equal(E$refinement$residual,0)
++  expect_true(E$refinement$converged)
++})
++
++test_that('large parameter counts retain the bounded-memory fallback', {
++  E <- quadratic_envelope(rep(.5,17))
++  expect_false(E$refinement$accelerated)
++  expect_true(E$refinement$converged)
++  expect_lt(E$refinement$residual,1e-6)
++})
+diff --git a/tests/testthat/test-fit-diagnostics.R b/tests/testthat/test-fit-diagnostics.R
+new file mode 100644
+index 0000000..6c107a1
+--- /dev/null
++++ b/tests/testthat/test-fit-diagnostics.R
+@@ -0,0 +1,74 @@
++diagnostics_case <- function(parallel=FALSE) {
++  X <- matrix(1,20,1);a <- cmb_augment(X,rep(c(0,1,3,5),5),6,Z=X)
++  rglmb(n=200L,y=a$y,x=a$x,offset=a$offset,weights=a$weights,family=cmb(),
++        pfamily=dNormal(mu=matrix(0,2,1),Sigma=25*diag(2)),
++        n_envopt=1000L,use_parallel=parallel,verbose=FALSE)
++}
++test_that('successful envelope diagnostics agree with actual sampling', {
++  set.seed(614);f <- diagnostics_case(TRUE);d <- f$diagnostics
++  expect_s3_class(d,'glmb_diagnostics')
++  expect_identical(d$status,'completed')
++  expect_identical(d$sampling_mode,'parallel')
++  expect_equal(d$draws,nrow(f$coefficients))
++  expect_equal(d$total_proposals,sum(f$iters))
++  expect_equal(d$proposals_per_draw,mean(f$iters))
++  expect_equal(d$acceptance_rate,nrow(f$coefficients)/sum(f$iters))
++  expect_equal(d$max_proposals,max(f$iters))
++  expect_equal(d$envelope$residual,f$Envelope$refinement$residual)
++  expect_equal(d$envelope$cells,length(f$Envelope$PLSD))
++  expect_match(d$build$fingerprint[['compiled_code']],'^[a-f0-9]{32}$')
++  expect_identical(summary(f)$diagnostics,d)
++  expect_output(print(d),'Envelope: converged')
++})
++test_that('incomplete or absent refinement is never reported as convergence', {
++  f <- diagnostics_case();f$Envelope$refinement$converged <- FALSE
++  d <- glmbayes:::.glmb_fit_diagnostics(f,list(use_parallel=FALSE))
++  expect_identical(d$status,'refinement_incomplete')
++  expect_output(print(d),'Envelope: incomplete')
++  f$Envelope$refinement <- NULL
++  d <- glmbayes:::.glmb_fit_diagnostics(f,list())
++  expect_identical(d$envelope$status,'not_reported')
++  expect_true(is.na(d$envelope$residual))
++  f$Envelope$refinement <- list(converged=NA)
++  f$Envelope$PLSD <- NULL
++  d <- glmbayes:::.glmb_fit_diagnostics(f,list())
++  expect_identical(d$envelope$status,'not_reported')
++  expect_true(is.na(d$envelope$cells))
++  f$iters <- NULL
++  expect_true(is.na(glmbayes:::.glmb_fit_diagnostics(f,list())$total_proposals))
++})
++test_that('formula fits preserve diagnostics for direct and envelope sampling', {
++  d <- data.frame(y=c(1,2,1,4,3,2,5,4),x=seq(-1,1,length.out=8))
++  f <- glmb(y~x,data=d,n=100L,family=poisson(),
++            pfamily=dNormal(mu=matrix(0,2,1),Sigma=diag(2)),verbose=FALSE)
++  expect_s3_class(f$diagnostics,'glmb_diagnostics')
++  expect_identical(summary(f)$diagnostics,f$diagnostics)
++  g <- lmb(y~x,data=d,n=100L,
++           pfamily=dIndependent_Normal_Gamma(mu=c(2,0),Sigma=diag(2),shape=3,rate=2),verbose=FALSE)
++  expect_identical(g$diagnostics$method,'envelope_rejection')
++  expect_gt(g$diagnostics$envelope$cells,0)
++  expect_equal(g$diagnostics$total_proposals,sum(g$iters))
++  h <- lmb(y~x,data=d,n=100L,
++           pfamily=dNormal(mu=matrix(0,2,1),Sigma=diag(2),dispersion=1),verbose=FALSE)
++  expect_identical(h$diagnostics$envelope$status,'not_applicable')
++  expect_true(is.na(h$diagnostics$acceptance_rate))
++})
++test_that('real sampler exhaustion supplies a structured condition without draws', {
++  sample_bad <- function() glmbayes:::rNormalGLM_std_cpp_export(
++    n=2L,y=0,x=matrix(0,1,1),mu=matrix(0,1,1),P=matrix(0,1,1),
++    alpha=0,wt=1,f2=identity,Envelope=list(PLSD=1,logPLSD=0,
++      cbars=matrix(0,1,1),loglt=matrix(0,1,1),logrt=matrix(0,1,1),
++      logU=matrix(0,1,1),LLconst=-1e100),
++    family='gaussian',link='identity',progbar=0L)
++  e <- tryCatch(glmbayes:::.glmb_run_simulation(sample_bad(),list(use_parallel=FALSE)),
++                glmbayes_sampling_error=function(e)e)
++  expect_s3_class(e,'glmbayes_sampling_error')
++  expect_identical(e$diagnostics$status,'failed')
++  expect_equal(e$diagnostics$proposal_limit,200000)
++  expect_identical(e$diagnostics$draws_returned,0L)
++  expect_null(e$coefficients)
++  expect_match(conditionMessage(e),'predictor scaling')
++  # Unrelated errors retain their original class and message.
++  original <- structure(list(message='unrelated failure',call=NULL),class=c('test_error','error','condition'))
++  expect_error(glmbayes:::.glmb_run_simulation(stop(original),list()),class='test_error')
++})
+diff --git a/tests/testthat/test-rejection-cap.R b/tests/testthat/test-rejection-cap.R
+new file mode 100644
+index 0000000..dd75337
+--- /dev/null
++++ b/tests/testthat/test-rejection-cap.R
+@@ -0,0 +1,29 @@
++# Exercise the compiled serial sampler without optimization or refinement.
++# The residual target is constant; the proposal is an untruncated normal.
++constant_target_draws <- function(intercept, n = 4L) {
++  glmbayes:::rNormalGLM_std_cpp_export(
++    n = n, y = 0, x = matrix(0, 1, 1), mu = matrix(0, 1, 1),
++    P = matrix(0, 1, 1), alpha = 0, wt = 1, f2 = identity,
++    Envelope = list(PLSD = 1, logPLSD = 0, cbars = matrix(0, 1, 1),
++                    loglt = matrix(0, 1, 1), logrt = matrix(0, 1, 1),
++                    LLconst = intercept),
++    family = 'gaussian', link = 'identity', progbar = 0L)
++}
++
++test_that('a healthy envelope returns only accepted draws', {
++  set.seed(103)
++  ans <- constant_target_draws(0.5 * log(2 * pi), 100L)
++  expect_equal(ans$draws, rep(1, 100))
++  expect_true(all(is.finite(ans$out)))
++  expect_equal(nrow(ans$out), 100L)
++})
++
++test_that('a nonaccepting envelope fails instead of returning partial draws', {
++  expect_error(constant_target_draws(-1e300),
++               '200000 proposals with zero acceptances.*no draws were returned')
++})
++
++test_that('NaN acceptance calculations cannot bypass the proposal counter', {
++  expect_error(constant_target_draws(NaN),
++               '200000 proposals with zero acceptances.*no draws were returned')
++})
+diff --git a/tests/testthat/test-rng-reproducibility.R b/tests/testthat/test-rng-reproducibility.R
+new file mode 100644
+index 0000000..a48eb10
+--- /dev/null
++++ b/tests/testthat/test-rng-reproducibility.R
+@@ -0,0 +1,84 @@
++# Per-output-row streams must not depend on worker scheduling or calibration.
++# Compare sample values and R RNG state, not timing-dependent fit metadata.
++with_rng_threads <- function(code) {
++  old <- Sys.getenv('RCPP_PARALLEL_NUM_THREADS',unset=NA_character_)
++  on.exit(if(is.na(old)) Sys.unsetenv('RCPP_PARALLEL_NUM_THREADS') else
++            Sys.setenv(RCPP_PARALLEL_NUM_THREADS=old))
++  force(code)
++}
++rng_cmb_fit <- function(seed=312,parallel=TRUE,threads=2L,n=400L) {
++  RcppParallel::setThreadOptions(numThreads=threads)
++  set.seed(seed)
++  x <- cbind(1,seq(-1,1,length.out=30))
++  a <- cmb_augment(x,rep(c(0,1,2,4,6),6),6,Z=matrix(1,30,1))
++  f <- rglmb(n=n,y=a$y,x=a$x,weights=a$weights,offset=a$offset,
++             family=cmb(),pfamily=dNormal(mu=matrix(0,3,1),Sigma=25*diag(3)),
++             n_envopt=1000L,use_parallel=parallel,verbose=FALSE)
++  list(beta=f$coefficients,iters=f$iters,state=.Random.seed,next_random=runif(5))
++}
++test_that('CMB output and R RNG state repeat across scheduling choices', {
++  with_rng_threads({
++    a <- rng_cmb_fit(parallel=FALSE)
++    expect_identical(rng_cmb_fit(parallel=FALSE),a)
++    for(threads in c(1L,2L,4L)) {
++      b <- rng_cmb_fit(threads=threads)
++      expect_identical(b,a)
++    }
++    expect_false(identical(rng_cmb_fit(seed=313)$beta,a$beta))
++    expect_equal(nrow(unique(a$beta)),nrow(a$beta))
++  })
++})
++test_that('draw prefixes and R state are independent of requested draw count', {
++  with_rng_threads({
++    a <- rng_cmb_fit(n=400L)
++    b <- rng_cmb_fit(n=700L,threads=4L)
++    expect_identical(b$beta[seq_len(400),,drop=FALSE],a$beta)
++    expect_identical(b$iters[seq_len(400)],as.vector(a$iters))
++    expect_identical(b$state,a$state)
++    expect_identical(b$next_random,a$next_random)
++  })
++})
++test_that('independent Normal-Gamma draws repeat across thread counts', {
++  with_rng_threads({
++    fit <- function(parallel,threads=2L) {
++      RcppParallel::setThreadOptions(numThreads=threads);set.seed(97)
++      d <- data.frame(y=c(4.17,5.58,5.18,6.11,4.5,4.61,5.17,4.53,5.33,5.14),x=seq(-1,1,length.out=10))
++      f <- lmb(y~x,data=d,n=300L,
++               pfamily=dIndependent_Normal_Gamma(mu=c(5,0),Sigma=diag(2),shape=3,rate=2),
++               verbose=FALSE,use_parallel=parallel)
++      stopifnot(length(f$dispersion)==300L,length(f$iters)==300L)
++      list(beta=f$coefficients,dispersion=f$dispersion,iters=f$iters,state=.Random.seed)
++    }
++    a <- fit(FALSE)
++    expect_identical(fit(FALSE),a)
++    b <- fit(TRUE,1L)
++    expect_identical(fit(TRUE,4L),b)
++    # Both algorithms use the same per-row stream. Check their public outputs.
++    expect_identical(b,a)
++  })
++})
++
++test_that('R RNG advancement is fixed and distinct calls get new keys', {
++  draw <- function() glmbayes:::rNormalGLM_std_cpp_export(
++    n=10L,y=0,x=matrix(0,1,1),mu=matrix(0,1,1),P=matrix(0,1,1),
++    alpha=0,wt=1,f2=identity,Envelope=list(PLSD=1,logPLSD=0,
++      cbars=matrix(0,1,1),loglt=matrix(0,1,1),logrt=matrix(0,1,1),
++      logU=matrix(0,1,1),LLconst=.5*log(2*pi)),
++    family='gaussian',link='identity',progbar=0L)
++  set.seed(204);runif(2);expected_state <- .Random.seed
++  set.seed(204);a <- draw()
++  expect_identical(.Random.seed,expected_state)
++  b <- draw()
++  expect_false(identical(a$out,b$out))
++  set.seed(204)
++  expect_identical(draw(),a)
++})
++
++test_that('the L Ecuyer R generator also supplies reproducible stream keys', {
++  old <- RNGkind();on.exit(do.call(RNGkind,as.list(old)))
++  RNGkind("L'Ecuyer-CMRG")
++  with_rng_threads({
++    a <- rng_cmb_fit(parallel=FALSE)
++    expect_identical(rng_cmb_fit(threads=4L),a)
++  })
++})
+diff --git a/tests/testthat/test-truncated-normal-tails.R b/tests/testthat/test-truncated-normal-tails.R
+new file mode 100644
+index 0000000..f6543dc
+--- /dev/null
++++ b/tests/testthat/test-truncated-normal-tails.R
+@@ -0,0 +1,42 @@
++# Force acceptance to inspect the production proposal independently of the
++# posterior and rejection rule. Shifts put a narrow cell 100--1000 SD into
++# either tail, where one of the two legacy log-tail probabilities is zero.
++test_that('normal proposals preserve narrow cells in extreme tails', {
++  cb <- c(100, -100, 1000, -1000, 0)
++  lo <- c(0, -.01, 0, -.001, -1)
++  hi <- c(.01, 0, .001, 0, 1)
++  down <- lo+cb; up <- hi+cb
++  lt <- pnorm(up,log.p=TRUE)
++  rt <- pnorm(down,lower.tail=FALSE,log.p=TRUE)
++  lm <- vapply(seq_along(cb),function(j) {
++    if (down[j]>=0) {
++      a <- pnorm(down[j],lower.tail=FALSE,log.p=TRUE)
++      b <- pnorm(up[j],lower.tail=FALSE,log.p=TRUE)
++    } else {
++      a <- pnorm(up[j],log.p=TRUE)
++      b <- pnorm(down[j],log.p=TRUE)
++    }
++    a+log(-expm1(b-a))
++  },numeric(1))
++  p <- length(cb); n <- 20000L
++  E <- list(PLSD=1,logPLSD=0,cbars=matrix(cb,1),
++            loglt=matrix(lt,1),logrt=matrix(rt,1),logU=matrix(lm,1),
++            LLconst=1e100)
++  ans <- glmbayes:::rNormalGLM_std_cpp_export(
++    n=n,y=0,x=matrix(0,1,p),mu=matrix(0,p,1),P=matrix(0,p,p),
++    alpha=0,wt=1,f2=identity,Envelope=E,family='gaussian',
++    link='identity',progbar=0L)
++  expect_equal(ans$draws,rep(1,n))
++  expect_true(all(is.finite(ans$out)))
++  for(j in seq_len(p)) {
++    v <- ans$out[,j]
++    expect_true(all(v>=lo[j]-1e-10 & v<=hi[j]+1e-10))
++    # Independent integration on the actual cell, without normal CDF tails.
++    density <- function(x) exp(-cb[j]*x-x*x/2)
++    z <- integrate(density,lo[j],hi[j])$value
++    m <- integrate(function(x) x*density(x),lo[j],hi[j])$value/z
++    vref <- integrate(function(x) (x-m)^2*density(x),lo[j],hi[j])$value/z
++    expect_lt(abs(mean(v)-m),6*sqrt(vref/n))
++    expect_lt(abs(mean((v-m)^2)-vref),6*sd((v-m)^2)/sqrt(n))
++  }
++})

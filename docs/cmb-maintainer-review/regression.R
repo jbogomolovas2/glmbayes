@@ -1,0 +1,5 @@
+library(glmbayes)
+print(sessionInfo())
+r <- testthat::test_dir('source/tests/testthat',reporter='summary',stop_on_failure=FALSE)
+saveRDS(r,'regression.rds');d<-as.data.frame(r);d$result<-NULL;write.csv(d,'regression.csv',row.names=FALSE)
+if (any(d$failed > 0 | d$error)) stop('Public regression suite failed; see regression.csv')

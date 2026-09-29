@@ -1,0 +1,18 @@
+{
+  "contribution": "b971596511c90f33de290497b2c7e8feb1a4e580",
+  "base": "7959a42d32f822a4b65ddfaf94927190ad5db536",
+  "published_remote": "https://github.com/jbogomolovas2/glmbayes.git",
+  "published_ref": "refs/heads/cmb-public-prep",
+  "published_sha": "b971596511c90f33de290497b2c7e8feb1a4e580",
+  "upstream_remote": "https://github.com/knygren/glmbayes.git",
+  "observed_upstream_head": "dc2d905d2244350c76068609abe031bb01421132",
+  "verified_date": "2026-09-28 PDT",
+  "checkout": "[review-checkout]",
+  "checkout_head": "b971596511c90f33de290497b2c7e8feb1a4e580",
+  "checkout_status": "",
+  "merge_base": "7959a42d32f822a4b65ddfaf94927190ad5db536",
+  "diff_paths": 51,
+  "source_link_paths_verified": 53,
+  "build_copy_changed_tracked_paths": [],
+  "publication_note": "Machine-specific checkout path redacted; recorded revision/status evidence is unchanged."
+}

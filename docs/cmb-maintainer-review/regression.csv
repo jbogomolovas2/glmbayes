@@ -1,0 +1,69 @@
+"file","context","test","nb","failed","skipped","error","warning","user","system","real","passed"
+"test-bayestestR-methods.R","bayestestR-methods","simulate_prior.glmb() shape/colnames match get_parameters.glmb()",4,0,FALSE,FALSE,0,0.056,0.00800000000000001,0.0720000000000001,4
+"test-bayestestR-methods.R","bayestestR-methods","simulate_prior.glmb() recovers the true joint covariance, not just marginals",5,0,FALSE,FALSE,0,0.035,0.00399999999999999,0.046,5
+"test-bayestestR-methods.R","bayestestR-methods","simulate_prior.glmb() dispersion column matches get_parameters.glmb()'s convention",3,0,FALSE,FALSE,0,0.017,0.001,0.018,3
+"test-bayestestR-methods.R","bayestestR-methods","simulate_prior.glmb() draws exactly from Beta(shape1, shape2) for dBeta",3,0,FALSE,FALSE,0,0.014,0.001,0.0150000000000001,3
+"test-bayestestR-methods.R","bayestestR-methods","simulate_prior.glmb() truncates the dIndependent_Normal_Gamma() dispersion prior",5,0,FALSE,FALSE,0,0.145,0.00700000000000001,0.153,5
+"test-bayestestR-methods.R","bayestestR-methods","check_prior.glmb() distinguishes an uninformative prior from an informative one",6,0,FALSE,FALSE,0,0.025,0.00299999999999999,0.028,6
+"test-bayestestR-methods.R","bayestestR-methods","describe_prior.glmb() returns pfamily(model), not a flattened table",4,0,FALSE,FALSE,0,0.00900000000000001,0.001,0.01,4
+"test-bayestestR-methods.R","bayestestR-methods","simulate_prior.glmb()/check_prior.glmb() report only dispersion for dGamma(Inv_Dispersion = TRUE)",5,0,FALSE,FALSE,0,0.00900000000000001,0.002,0.0110000000000001,5
+"test-bayestestR-methods.R","bayestestR-methods","simulate_prior.glmb() delegates to pfamily$pfun",2,0,FALSE,FALSE,0,0.006,0.001,0.00700000000000012,2
+"test-boston.R","boston","Bayesian Gaussian regression with Independent Normal-Gamma prior <U+2014> OpenCL",1,0,TRUE,FALSE,0,0.002,0,0.002,0
+"test-cleveland_heart.R","cleveland_heart","Bayesian binomial-logit regression-OpenCL",1,0,TRUE,FALSE,0,0.002,0,0.00100000000000011,0
+"test-cmb-public.R","cmb-public","CMB likelihood and derivatives agree with direct finite sums",9,0,FALSE,FALSE,0,0.026,0.003,0.0289999999999999,9
+"test-cmb-public.R","cmb-public","fitted CMB means integrate the distribution for each draw",4,0,FALSE,FALSE,0,0.012,0.002,0.014,4
+"test-dBeta-binomial-identity.R","dBeta-binomial-identity","dBeta() rejects bad inputs",5,0,FALSE,FALSE,0,0.0129999999999999,0,0.014,5
+"test-dBeta-binomial-identity.R","dBeta-binomial-identity","dBeta() constructor returns valid pfamily object",7,0,FALSE,FALSE,0,0.00700000000000001,0.001,0.00800000000000001,7
+"test-dBeta-binomial-identity.R","dBeta-binomial-identity","glmb() with dBeta draws match analytic Beta posterior",2,0,FALSE,FALSE,0,0.45,0.025,0.477,2
+"test-dBeta-binomial-identity.R","dBeta-binomial-identity","summary(), logLik(), DIC_Info() run without error for dBeta fit",3,0,FALSE,FALSE,0,0.087,0.002,0.0899999999999999,3
+"test-dBeta-binomial-identity.R","dBeta-binomial-identity","Prior_Setup() produces non-NULL conj_binomial for binomial(identity)",4,0,FALSE,FALSE,0,0.006,0.002,0.00800000000000001,4
+"test-envelope-refinement.R","envelope-refinement","Newton refinement resolves stiff unsplit axes",7,0,FALSE,FALSE,0,0.006,0.001,0.00700000000000012,7
+"test-envelope-refinement.R","envelope-refinement","a fixed point requires no update passes",3,0,FALSE,FALSE,0,0.004,0.001,0.00600000000000023,3
+"test-envelope-refinement.R","envelope-refinement","large parameter counts retain the bounded-memory fallback",3,0,FALSE,FALSE,0,0.006,0.001,0.00699999999999967,3
+"test-fit-diagnostics.R","fit-diagnostics","successful envelope diagnostics agree with actual sampling",13,0,FALSE,FALSE,0,0.21,0.00499999999999998,0.224,13
+"test-fit-diagnostics.R","fit-diagnostics","incomplete or absent refinement is never reported as convergence",7,0,FALSE,FALSE,0,0.0149999999999999,0.002,0.0180000000000002,7
+"test-fit-diagnostics.R","fit-diagnostics","formula fits preserve diagnostics for direct and envelope sampling",7,0,FALSE,FALSE,0,0.164,0.093,0.157,7
+"test-fit-diagnostics.R","fit-diagnostics","real sampler exhaustion supplies a structured condition without draws",7,0,FALSE,FALSE,0,0.368,0.005,0.375,7
+"test-insight-methods.R","insight-methods","model_info() reports is_bayesian = TRUE for glmb and lmb fits",2,0,FALSE,FALSE,0,0.0369999999999999,0.002,0.04,2
+"test-insight-methods.R","insight-methods","model_info.glmb() derives family/link-specific flags correctly",9,0,FALSE,FALSE,0,0.0399999999999996,0.004,0.0449999999999999,9
+"test-insight-methods.R","insight-methods","get_parameters.glmb() shape/colnames match fit$coefficients",5,0,FALSE,FALSE,0,0.0349999999999997,0.003,0.0380000000000003,5
+"test-insight-methods.R","insight-methods","get_parameters.glmb() appends a dispersion column only when sampled",4,0,FALSE,FALSE,0,0.0129999999999999,0.002,0.016,4
+"test-insight-methods.R","insight-methods","find_parameters.glmb() splits conditional/dispersion components",2,0,FALSE,FALSE,0,0.036,0.002,0.0389999999999997,2
+"test-insight-methods.R","insight-methods","find_algorithm.glmb() reports iid rejection sampling, not ML/OLS",3,0,FALSE,FALSE,0,0.0310000000000001,0.002,0.0329999999999999,3
+"test-insight-methods.R","insight-methods","get_data.glmb() returns model data without warning, with or without data=",8,0,FALSE,FALSE,0,0.0390000000000001,0.002,0.0419999999999998,8
+"test-insight-methods.R","insight-methods","get_priors.glmb() returns pfamily(model), not a flattened table",7,0,FALSE,FALSE,0,0.016,0.003,0.0179999999999998,7
+"test-insight-methods.R","insight-methods","get_priors.glmb() preserves the full covariance matrix for a correlated prior",2,0,FALSE,FALSE,0,0.0089999999999999,0.001,0.00900000000000034,2
+"test-insight-methods.R","insight-methods","get_priors.glmb() returns pfamily(model) for a dBeta prior too",3,0,FALSE,FALSE,0,0.00700000000000012,0.001,0.00999999999999979,3
+"test-insight-methods.R","insight-methods","get_parameters.glmb()/find_parameters.glmb() omit coefficients for dGamma(Inv_Dispersion = TRUE)",7,0,FALSE,FALSE,0,0.00900000000000034,0.002,0.012,7
+"test-insight-methods.R","insight-methods","get_priors.glmb() returns pfamily(model) for dIndependent_Normal_Gamma too",2,0,FALSE,FALSE,0,0.0390000000000001,0.002,0.0409999999999999,2
+"test-lmb-non-zellner.R","lmb-non-zellner","lmb: Independent Normal-Gamma with scaled diagonal Sigma (non-Zellner)",4,0,FALSE,FALSE,0,0.024,0.001,0.0260000000000002,4
+"test-lmb-non-zellner.R","lmb-non-zellner","lmb: strongly anisotropic Independent Normal-Gamma prior does not trigger UB2 sign violations",30,0,FALSE,FALSE,0,0.385,0.011,0.397,30
+"test-lmb-non-zellner.R","lmb-non-zellner","Prior_Setup Gaussian calibration: shape from n_prior, E[sigma^2|y] = dispersion",2,0,FALSE,FALSE,0,0.004,0.000999999999999945,0.00499999999999989,2
+"test-opencl-binomial-menarche.R","opencl-binomial-menarche","OpenCL binomial logit with MASS menarche (cbind successes, failures)",1,0,TRUE,FALSE,0,0.00099999999999989,0,0.00099999999999989,0
+"test-opencl-binomial-menarche.R","opencl-binomial-menarche","OpenCL binomial probit with MASS menarche (cbind successes, failures)",1,0,TRUE,FALSE,0,0.00700000000000012,0.001,0.00700000000000012,0
+"test-opencl-binomial-menarche.R","opencl-binomial-menarche","OpenCL binomial cloglog with MASS menarche (cbind successes, failures)",1,0,TRUE,FALSE,0,0.00100000000000033,0,0.00200000000000022,0
+"test-opencl-binomial.R","opencl-binomial","OpenCL f2_f3_binomial_logit (Ex_Cleveland)",1,0,TRUE,FALSE,0,0.00099999999999989,0,0.00100000000000033,0
+"test-opencl-binomial.R","opencl-binomial","OpenCL f2_f3_binomial_probit (Ex_Cleveland setup, Ex_glmb link)",1,0,TRUE,FALSE,0,0.00099999999999989,0,0.00099999999999989,0
+"test-opencl-binomial.R","opencl-binomial","OpenCL f2_f3_binomial_cloglog (Ex_Cleveland setup, Ex_glmb link)",1,0,TRUE,FALSE,0,0.00099999999999989,0,0.00100000000000033,0
+"test-opencl-gamma.R","opencl-gamma","OpenCL f2_f3_gamma (Ex_glmb carinsca)",1,0,TRUE,FALSE,0,0.00099999999999989,0,0.00200000000000022,0
+"test-opencl-gaussian-ing.R","opencl-gaussian-ing","OpenCL f2_f3_gaussian ING (Ex_Boston_centered)",1,0,TRUE,FALSE,0,0.00100000000000033,0.001,0.00099999999999989,0
+"test-opencl-poisson.R","opencl-poisson","OpenCL f2_f3_poisson (Ex_glmb Dobson RCT)",1,0,TRUE,FALSE,0,0.00099999999999989,0.001,0.00199999999999978,0
+"test-prior-setup-poisson-conj.R","prior-setup-poisson-conj","Prior_Setup conj_poisson matches pwt / n_prior conjugate identities",7,0,FALSE,FALSE,0,0.00999999999999979,0.003,0.012,7
+"test-prior_simfunction.R","prior_simfunction","each pfamily() constructor sets the matching pfun",6,0,FALSE,FALSE,0,0.0100000000000002,0.002,0.0129999999999999,6
+"test-prior_simfunction.R","prior_simfunction","all six prior_simfuncs share an identical signature",7,0,FALSE,FALSE,0,0.00800000000000001,0.003,0.0100000000000002,7
+"test-prior_simfunction.R","prior_simfunction","rNormal_prior() draws from the true joint N(mu, Sigma)",8,0,FALSE,FALSE,0,0.0129999999999999,0.002,0.016,8
+"test-prior_simfunction.R","prior_simfunction","rGamma_prior() draws InverseGamma(shape, rate), truncated when bounds given",4,0,FALSE,FALSE,0,0.0169999999999999,0.002,0.0190000000000001,4
+"test-prior_simfunction.R","prior_simfunction","rGamma_Conjugate_prior() draws each coefficient independently from Gamma(shape, rate)",5,0,FALSE,FALSE,0,0.012,0.002,0.0150000000000001,5
+"test-prior_simfunction.R","prior_simfunction","rNormal_Gamma_prior() returns joint-normal coefficients plus untruncated dispersion",4,0,FALSE,FALSE,0,0.00800000000000001,0.002,0.00999999999999979,4
+"test-prior_simfunction.R","prior_simfunction","rIndependent_Normal_Gamma_prior() truncates dispersion exactly like a real fit",6,0,FALSE,FALSE,0,0.15,0.00700000000000001,0.157,6
+"test-prior_simfunction.R","prior_simfunction","rBeta_prior() draws each coefficient independently from Beta(shape1, shape2)",5,0,FALSE,FALSE,0,0.0100000000000002,0.001,0.0110000000000001,5
+"test-prior_simfunction.R","prior_simfunction","params overrides rownames(prior_list$mu); both fall back to V1, V2, ...",3,0,FALSE,FALSE,0,0.004,0.001,0.00599999999999978,3
+"test-rejection-cap.R","rejection-cap","a healthy envelope returns only accepted draws",3,0,FALSE,FALSE,0,0.004,0.001,0.00600000000000023,3
+"test-rejection-cap.R","rejection-cap","a nonaccepting envelope fails instead of returning partial draws",1,0,FALSE,FALSE,0,0.371,0.004,0.376,1
+"test-rejection-cap.R","rejection-cap","NaN acceptance calculations cannot bypass the proposal counter",1,0,FALSE,FALSE,0,0.626,0.005,0.633,1
+"test-rng-reproducibility.R","rng-reproducibility","CMB output and R RNG state repeat across scheduling choices",6,0,FALSE,FALSE,0,0.0780000000000003,0.005,0.0759999999999996,6
+"test-rng-reproducibility.R","rng-reproducibility","draw prefixes and R state are independent of requested draw count",4,0,FALSE,FALSE,0,0.0289999999999999,0.003,0.0259999999999998,4
+"test-rng-reproducibility.R","rng-reproducibility","independent Normal-Gamma draws repeat across thread counts",3,0,FALSE,FALSE,0,0.21,0.011,0.204,3
+"test-rng-reproducibility.R","rng-reproducibility","R RNG advancement is fixed and distinct calls get new keys",3,0,FALSE,FALSE,0,0.00300000000000011,0.001,0.00399999999999956,3
+"test-rng-reproducibility.R","rng-reproducibility","the L Ecuyer R generator also supplies reproducible stream keys",1,0,FALSE,FALSE,0,0.0249999999999995,0.001,0.0279999999999996,1
+"test-truncated-normal-tails.R","truncated-normal-tails","normal proposals preserve narrow cells in extreme tails",17,0,FALSE,FALSE,0,0.167999999999999,0.004,0.172,17

@@ -1,0 +1,2 @@
+"case","refine","repetition","seed","n_target","status","construction_seconds","sampling_seconds","total_seconds","accepted","proposals","acceptance","log_mass","residual","iterations","converged","cells","message"
+"poisson",TRUE,2,9102,20000,"completed",0.017,0.29,0.344,20000,36855,0.542667209333876,-36.0384691236134,8.86689610624103e-11,3,TRUE,243,""

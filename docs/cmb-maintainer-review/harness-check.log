@@ -1,0 +1,12 @@
+During startup - Warning messages:
+1: Setting LC_CTYPE failed, using "C" 
+2: Setting LC_COLLATE failed, using "C" 
+3: Setting LC_TIME failed, using "C" 
+4: Setting LC_MESSAGES failed, using "C" 
+5: Setting LC_MONETARY failed, using "C" 
+Loading required package: MASS
+Maximum absolute coefficient difference: 4.885176e-12 
+[1] TRUE
+[1] TRUE
+Pinned public rglmb and validation harness: intercept CMB coefficients agree to 1e-12 and proposal counts are identical, 20,000 draws.
+Sorted logPLSD aligns with GridIndex; nested refinement vectors retain original order with cell_grid_index.

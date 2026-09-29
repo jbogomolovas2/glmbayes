@@ -1,0 +1,87 @@
+During startup - Warning messages:
+1: Setting LC_CTYPE failed, using "C" 
+2: Setting LC_COLLATE failed, using "C" 
+3: Setting LC_TIME failed, using "C" 
+4: Setting LC_MESSAGES failed, using "C" 
+5: Setting LC_MONETARY failed, using "C" 
+Loading required package: MASS
+[ERROR] logP1 spread too large: exp(min-max)=0
+  minIndex=80  minLogP1=-71.9108
+  maxIndex=72  maxLogP1=751131
+  spread=-751203
+[DETAIL] Components at minIndex=80
+  logP0=-4.67535e+06
+  NegLL=417.734
+  quad=4.67532e+06
+  lin=375.129
+  logP1=-71.9108
+  cbar[minIndex] = 1163.52 795.109 2002.01 1832.12
+  ||cbar[minIndex]|| = 3057.88
+[DETAIL] Components at maxIndex=72
+  logP0=-3.32942e+06
+  NegLL=315.545
+  quad=4.08058e+06
+  lin=283.135
+  logP1=751131
+  cbar[maxIndex] = 929.868 798.745 1836.44 1812.73
+  ||cbar[maxIndex]|| = 2856.77
+[ERROR] logP1 spread too large: exp(min-max)=0
+  minIndex=80  minLogP1=-71.9108
+  maxIndex=72  maxLogP1=751131
+  spread=-751203
+[DETAIL] Components at minIndex=80
+  logP0=-4.67535e+06
+  NegLL=417.734
+  quad=4.67532e+06
+  lin=375.129
+  logP1=-71.9108
+  cbar[minIndex] = 1163.52 795.109 2002.01 1832.12
+  ||cbar[minIndex]|| = 3057.88
+[DETAIL] Components at maxIndex=72
+  logP0=-3.32942e+06
+  NegLL=315.545
+  quad=4.08058e+06
+  lin=283.135
+  logP1=751131
+  cbar[maxIndex] = 929.868 798.745 1836.44 1812.73
+  ||cbar[maxIndex]|| = 2856.77
+[ERROR] logP1 spread too large: exp(min-max)=0
+  minIndex=80  minLogP1=-71.9108
+  maxIndex=72  maxLogP1=751131
+  spread=-751203
+[DETAIL] Components at minIndex=80
+  logP0=-4.67535e+06
+  NegLL=417.734
+  quad=4.67532e+06
+  lin=375.129
+  logP1=-71.9108
+  cbar[minIndex] = 1163.52 795.109 2002.01 1832.12
+  ||cbar[minIndex]|| = 3057.88
+[DETAIL] Components at maxIndex=72
+  logP0=-3.32942e+06
+  NegLL=315.545
+  quad=4.08058e+06
+  lin=283.135
+  logP1=751131
+  cbar[maxIndex] = 929.868 798.745 1836.44 1812.73
+  ||cbar[maxIndex]|| = 2856.77
+[ERROR] logP1 spread too large: exp(min-max)=0
+  minIndex=80  minLogP1=-71.9108
+  maxIndex=72  maxLogP1=751131
+  spread=-751203
+[DETAIL] Components at minIndex=80
+  logP0=-4.67535e+06
+  NegLL=417.734
+  quad=4.67532e+06
+  lin=375.129
+  logP1=-71.9108
+  cbar[minIndex] = 1163.52 795.109 2002.01 1832.12
+  ||cbar[minIndex]|| = 3057.88
+[DETAIL] Components at maxIndex=72
+  logP0=-3.32942e+06
+  NegLL=315.545
+  quad=4.08058e+06
+  lin=283.135
+  logP1=751131
+  cbar[maxIndex] = 929.868 798.745 1836.44 1812.73
+  ||cbar[maxIndex]|| = 2856.77

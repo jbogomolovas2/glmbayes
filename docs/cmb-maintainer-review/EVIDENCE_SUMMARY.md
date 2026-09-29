@@ -1,0 +1,31 @@
+# Evidence summary
+
+**Reviewed:** `b971596511c90f33de290497b2c7e8feb1a4e580` against `7959a42d32f822a4b65ddfaf94927190ad5db536`. Published contribution branch verified exactly; clean isolated checkout. Source archive, build library and measurements are separate from that checkout. [Full review](MAINTAINER_REVIEW.md)
+
+- **Strongest CMB evidence:** zero-heavy CMB on completes all three measured fits (total median 0.594 s [0.593,0.628]); off caps before the first accepted draw in all three. Refinement is practically necessary for this fixed setup under the chosen limits; this does not establish a requirement for CMB generally.
+- **Other CMB and upstream examples:** five other CMB cases finish with either setting. Expected proposal improvements are roughly 0.9–3.2%, with largely overlapping total-time ranges. Menarche has a small timing difference with almost unchanged proposals. Poisson slows from .330 [.327,.331] s to .344 [.343,.352] s; construction overhead offsets its small acceptance improvement. The Gaussian envelope comparison is essentially unchanged, but forces an envelope path rather than the ordinary direct Gaussian sampler.
+- **Artificial stress check:** the deliberately displaced stiff-axis test completes only with refinement (enabled median 4.671 s [4.651,4.844]; disabled caps at draw 1). This demonstrates sensitivity to a poor starting tangency in a constructed example, not representative Gaussian or CMB performance. Acceptance remains low even with refinement.
+- **80 controlled fits:** ten cases, refinement on/off, one warm-up plus three measured repetitions, 20,000 requested draws, serial CPU, fixed paired seeds, 300-second external timeout, unchanged 200,000-proposal-per-draw cap. 72 completed and 8 capped including warm-ups; measured only: 54 completed, 6 capped, 0 timeouts. All completed runs returned 20,000 draws. No off-setting removes tail/log-weight/RNG safeguards.
+- **References:** all six numerical references resolved. Five use converged two-scale Gauss-Hermite rules; zero-heavy uses the original two-seed Student-t fallback (ESS ~579k each, agreement 1.147 combined SE). All 33 completed measured CMB fits meet the existing <6-SE mean/covariance/proposal-rate thresholds. The three disabled zero-heavy measured fits are capped failures, never reference passes.
+- **Public regression suite:** run once; 302 passed assertions, no failures/errors/test warnings; 11 OpenCL skips across 68 tests. Locale startup warnings and the post-suite export mishap are retained. No CPU result certifies OpenCL.
+- **Defects:** manual public envelope wrapper passes 16 arguments to an 18-argument native entry and segfaulted in an isolated process; CMB fitted helpers ignore offsets; augmentation accepts fractional counts later rounded by kernels; validation's mvtnorm dependency is undeclared. None was silently fixed.
+- **Theory:** supplied paper read directly. Section 3.1 motivates the fixed-cell mean/tangency condition; sections 3.2–3.3 distinguish normal-model limits from general near-normal expectations. The contribution does not prove universal refinement convergence, a finite-sample CMB efficiency bound, or new asymptotics.
+
+Environment: R 4.5.2 on arm64 macOS Ventura 13.0.1; glmbayes 0.9.76.9001; Apple clang 14.0.3; Accelerate BLAS/R LAPACK; serial thread settings. Exact dependency versions, locale, timestamps and binary/R-code hashes are in [environment.txt](environment.txt), [install log](install.log), and reference logs. Current upstream snapshot `dc2d905d2244350c76068609abe031bb01421132` has separate comparison metadata in [UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md); it was not used for measurements.
+
+| Artifact | Purpose |
+|---|---|
+| [Datasets and model specifications](cases/README.md) | Six exact synthetic CSV inputs, priors, predictor formulas and zero-heavy comparison settings |
+| [MAINTAINER_REVIEW.md](MAINTAINER_REVIEW.md) | Short four-part overview, followed by the full inventory, defects, paper mapping and median/range table |
+| [compare.R](compare.R), [runner](run-comparisons.py) | Validation-only toggle with pinned generated exports; sequential process timeouts |
+| [reproduction.sh](reproduction.sh) | Build and run recipe from immutable source |
+| [raw runs](results/runs.csv), [residuals](results/runs-with-residuals.csv), [summary](results/summary.csv) | Machine-readable fit status, timings, proposals/acceptance, masses, residuals and ranges |
+| [failure counts](results/failure-counts.csv) | Exact 0 accepts / 200,000 proposals / 0 returned draws derived from first-draw cap messages; raw inaccessible native totals stay NA |
+| [reference checks](results/reference-checks.csv), [status](references/status.csv) | Completed CMB accuracy evidence; RDS files retain draws, envelopes and references |
+| [regression.csv](regression.csv), [regression.log](regression.log), [regression.rds](regression.rds) | One unchanged public suite run, including skips |
+| [R signatures](r-function-inventory.csv), [C++ signatures](cpp-function-inventory.csv), [diff](reviewed.diff) | Exact interface inventory and immutable revision evidence |
+| [Publication notes](PUBLICATION_NOTES.md) | Public-copy provenance, path redactions and reproduction-runner changes |
+
+Timing note: phase timings are elapsed seconds; total includes in-harness checkpoint serialization and transformation. Data/reference construction and R startup are excluded from those timings, but the external timeout covers the complete fit process. Off-setting residuals were computed after timing with zero refinement passes and verified not to move tangencies or alter weights. No broad speed claim is supported by three short repetitions.
+
+This review leaves the published snapshot and its defaults unchanged; the snapshot itself enables refinement by default in the shared GLM sampler. The measurement/review stage did not publish or send messages or a PR. This subsequent public copy contains the allowlisted evidence as individual files, excluding the source/build library, supplied paper and local paper extraction/renderings, private analysis directories, and unsent reply draft. Publication edits are documented in [PUBLICATION_NOTES.md](PUBLICATION_NOTES.md).

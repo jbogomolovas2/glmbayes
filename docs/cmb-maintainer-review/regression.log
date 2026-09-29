@@ -1,0 +1,135 @@
+During startup - Warning messages:
+1: Setting LC_CTYPE failed, using "C" 
+2: Setting LC_COLLATE failed, using "C" 
+3: Setting LC_TIME failed, using "C" 
+4: Setting LC_MESSAGES failed, using "C" 
+5: Setting LC_MONETARY failed, using "C" 
+Loading required package: MASS
+R version 4.5.2 (2025-10-31)
+Platform: aarch64-apple-darwin20
+Running under: macOS Ventura 13.0.1
+
+Matrix products: default
+BLAS:   /System/Library/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A/libBLAS.dylib 
+LAPACK: /Library/Frameworks/R.framework/Versions/4.5-arm64/Resources/lib/libRlapack.dylib;  LAPACK version 3.12.1
+
+locale:
+[1] C
+
+time zone: America/Los_Angeles
+tzcode source: internal
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+[1] glmbayes_0.9.76.9001 MASS_7.3-66         
+
+loaded via a namespace (and not attached):
+ [1] compiler_4.5.2     tools_4.5.2        Rcpp_1.1.2         opencltools_0.8.3 
+ [5] bayestestR_0.18.1  insight_1.5.2      rbibutils_2.4.1    Rdpack_2.6.6      
+ [9] RcppParallel_6.2.1 nmathopencl_0.8.3 
+bayestestR-methods: Using default pwt = 0.01 (low-d default).
+.........Using default pwt = 0.01 (low-d default).
+......Computed pwt = 0.1351 from n_prior = 5 and n_effective = 32
+...............Using default pwt = 0.01 (low-d default).
+.......
+boston: S
+cleveland_heart: S
+cmb-public: .............
+dBeta-binomial-identity: ..............Call
+glmb(formula = y_mat ~ 1, family = binomial(link = "identity"), pfamily = pf, n = 5000) 
+
+Expected Residuals:
+         1 
+-0.1329376 
+
+Prior and Maximum Likelihood Estimates with Standard Deviations
+
+            Null Mode Prior Mean Prior.sd Max Like. Like.sd
+(Intercept)    0.4000     0.5000   0.2236    0.4000    0.11
+
+Bayesian Estimates Based on 5000 iid draws
+
+            Post.Mode Post.Mean  Post.Sd MC Error Pr(Null_tail) SE(tail)
+(Intercept)  0.409091  0.416869 0.099195 0.001403      0.443800    0.006
+            Pr(Prior_tail)
+(Intercept)            0.2
+  Directional Tail Summaries:
+
+               Metric vs Null vs Prior
+ Mahalanobis Distance  0.1710   0.8426
+     Tail Probability  0.4438   0.1998
+  [Tail probabilities are P(delta^T * Z <= 0) in whitened space]
+
+
+Distribution Percentiles
+
+              1.0%   2.5%   5.0% Median  95.0%  97.5% 99.0%
+(Intercept) 0.2069 0.2312 0.2577 0.4152 0.5871 0.6166 0.656
+
+Effective Number of Parameters: 0.8495296 
+Expected Residual Deviance: 0.8730374 
+DIC: 5.155436 
+
+Expected Mean dispersion: 1 
+Sq.root of Expected Mean dispersion: 1 
+
+Sampling: direct; envelope diagnostics not applicable.
+.......
+envelope-refinement: .............
+fit-diagnostics: ..................................
+insight-methods: Using default pwt = 0.01 (low-d default).
+..Using default pwt = 0.01 (low-d default).
+.........Using default pwt = 0.01 (low-d default).
+.....Using default pwt = 0.01 (low-d default).
+....Using default pwt = 0.01 (low-d default).
+.Using default pwt = 0.01 (low-d default).
+.Using default pwt = 0.01 (low-d default).
+...Using default pwt = 0.01 (low-d default).
+........Using default pwt = 0.01 (low-d default).
+............Using default pwt = 0.01 (low-d default).
+.......Using default pwt = 0.01 (low-d default).
+..
+lmb-non-zellner: Using default pwt = 0.01 (low-d default).
+....................................
+opencl-binomial-menarche: SSS
+opencl-binomial: SSS
+opencl-gamma: S
+opencl-gaussian-ing: S
+opencl-poisson: S
+prior-setup-poisson-conj: .......
+prior_simfunction: ..................................Computed pwt = 0.1351 from n_prior = 5 and n_effective = 32
+..............
+rejection-cap: .....
+rng-reproducibility: .................
+truncated-normal-tails: .................
+
+== Skipped =====================================================================
+1. Bayesian Gaussian regression with Independent Normal-Gamma prior <U+2014> OpenCL ('test-boston.R:3:3') - Reason: OpenCL not enabled in this build of glmbayes
+
+2. Bayesian binomial-logit regression-OpenCL ('test-cleveland_heart.R:2:3') - Reason: OpenCL not enabled in this build of glmbayes
+
+3. OpenCL binomial logit with MASS menarche (cbind successes, failures) ('test-opencl-binomial-menarche.R:36:3') - Reason: OpenCL not enabled in this build of glmbayes
+
+4. OpenCL binomial probit with MASS menarche (cbind successes, failures) ('test-opencl-binomial-menarche.R:44:3') - Reason: OpenCL not enabled in this build of glmbayes
+
+5. OpenCL binomial cloglog with MASS menarche (cbind successes, failures) ('test-opencl-binomial-menarche.R:52:3') - Reason: OpenCL not enabled in this build of glmbayes
+
+6. OpenCL f2_f3_binomial_logit (Ex_Cleveland) ('test-opencl-binomial.R:9:3') - Reason: OpenCL not enabled in this build of glmbayes
+
+7. OpenCL f2_f3_binomial_probit (Ex_Cleveland setup, Ex_glmb link) ('test-opencl-binomial.R:38:3') - Reason: OpenCL not enabled in this build of glmbayes
+
+8. OpenCL f2_f3_binomial_cloglog (Ex_Cleveland setup, Ex_glmb link) ('test-opencl-binomial.R:67:3') - Reason: OpenCL not enabled in this build of glmbayes
+
+9. OpenCL f2_f3_gamma (Ex_glmb carinsca) ('test-opencl-gamma.R:4:3') - Reason: OpenCL not enabled in this build of glmbayes
+
+10. OpenCL f2_f3_gaussian ING (Ex_Boston_centered) ('test-opencl-gaussian-ing.R:5:3') - Reason: OpenCL not enabled in this build of glmbayes
+
+11. OpenCL f2_f3_poisson (Ex_glmb Dobson RCT) ('test-opencl-poisson.R:4:3') - Reason: OpenCL not enabled in this build of glmbayes
+
+== DONE ========================================================================
+Error in utils::write.table(as.data.frame(r), "regression.csv", row.names = FALSE,  : 
+  unimplemented type 'list' in 'EncodeElement'
+Calls: write.csv -> eval.parent -> eval -> eval -> <Anonymous>
+Execution halted

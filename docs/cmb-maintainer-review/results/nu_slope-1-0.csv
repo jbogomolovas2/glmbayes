@@ -1,0 +1,2 @@
+"case","refine","repetition","seed","n_target","status","construction_seconds","sampling_seconds","total_seconds","accepted","proposals","acceptance","log_mass","residual","iterations","converged","cells","message"
+"nu_slope",TRUE,0,9100,20000,"completed",0.034,0.34,0.395,20000,28813,0.694131121368827,-133.581612849155,3.46712006327188e-10,3,TRUE,27,""

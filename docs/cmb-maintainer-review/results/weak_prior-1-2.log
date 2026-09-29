@@ -1,0 +1,12 @@
+During startup - Warning messages:
+1: Setting LC_CTYPE failed, using "C" 
+2: Setting LC_COLLATE failed, using "C" 
+3: Setting LC_TIME failed, using "C" 
+4: Setting LC_MESSAGES failed, using "C" 
+5: Setting LC_MONETARY failed, using "C" 
+        case refine repetition seed n_target    status construction_seconds
+1 weak_prior   TRUE          2 9102    20000 completed                0.042
+  sampling_seconds total_seconds accepted proposals acceptance log_mass
+1             0.38         0.451    20000     33319  0.6002581 -136.903
+      residual iterations converged cells message
+1 7.710182e-08          3      TRUE    81        

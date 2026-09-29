@@ -1,0 +1,14 @@
+During startup - Warning messages:
+1: Setting LC_CTYPE failed, using "C" 
+2: Setting LC_COLLATE failed, using "C" 
+3: Setting LC_TIME failed, using "C" 
+4: Setting LC_MESSAGES failed, using "C" 
+5: Setting LC_MONETARY failed, using "C" 
+        case refine repetition seed n_target       status construction_seconds
+1 stiff_axis  FALSE          2 9102    20000 proposal_cap                0.002
+  sampling_seconds total_seconds accepted proposals acceptance log_mass
+1            0.438         0.443       NA        NA         NA 500554.1
+  residual iterations converged cells
+1       NA         NA        NA     1
+                                                                                                                                                                                                                          message
+1 glmbayes: the rejection sampler reached 200000 proposals with zero acceptances for draw 1 of 20000. The envelope is too loose for this model, so no draws were returned. No approximate or force-accepted values were produced.
